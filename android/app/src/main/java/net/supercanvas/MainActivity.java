@@ -738,6 +738,9 @@ public class MainActivity extends Activity {
             });
         }
 
+        /** The screen orientation chosen (setOrientation), "system" until one is. */
+        @JavascriptInterface public String orientation() { return prefs.getString("orient", "system"); }
+
         @JavascriptInterface public void setOrientation(String o) {
             prefs.edit().putString("orient", o).apply();
             runOnUiThread(() -> applyOrientation(o));

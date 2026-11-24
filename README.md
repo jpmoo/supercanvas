@@ -10,12 +10,13 @@ every change.
 
 ## Tools
 
-The toolbar sits at the top right. Tools with options (the pen, shapes) open a strip down the left side;
-tap the tool again, or the strip's ✕, to put it away.
+One toolbar runs across the top: the canvas's name on the left (tap it for your canvases), the tools on the
+right. Tools with options (the pen, shapes) open a strip down the left side; tap the tool again, or the
+strip's ✕, to put it away.
 
 | Tool | What it does |
 | --- | --- |
-| **Canvases** | Open, create, rename and delete canvases; folders; **Export PNG / PDF** of the whole canvas. Also opened by tapping the title. |
+| **Canvases** | Open, create, rename and delete canvases; folders; **Export PNG / PDF** of the whole canvas; screen **Orientation**; **About**. Also opened by tapping the canvas's name. |
 | **Shapes** | Drag onto the canvas to drop a note: text, post-it, rounded, rectangle, ellipse, triangle. Tap to choose the shape. Double-tap a note to type (Markdown with live preview). |
 | **Mind map** | Drops a mind-map root. Long-press a node for *Add a child / parent / sibling*. |
 | **Select** | Draw a lasso around notes and ink to select them, then drag inside the selection to move it, or tap **Delete**. |
@@ -27,17 +28,19 @@ Also on the canvas:
 
 - **Connections:** drag a note onto another to connect them; tap a line to bend it, long-press for its options.
 - **Regions** group notes; long-press for menus (colors, borders, text alignment, and more).
-- **Navigation:** one finger pans, two fingers pinch to zoom; a minimap in the corner. Your palm is ignored
-  while the pen is near.
+- **Navigation:** one finger pans, two fingers pinch to zoom; a minimap (bottom right, closed until you open
+  it). Your palm is ignored while the pen is near.
+- **Orientation:** follow the system, turn with the device, or hold portrait or landscape (either way up),
+  from the Canvases panel or Ctrl+Shift+R.
 
 ## Install
 
 1. On the Nomad, turn on sideloading: **Settings → Security & Privacy → Sideloading** (wording may vary by firmware).
-2. Download `supercanvas-1.0-beta.1.apk` from the [Releases](../../releases) page, copy it to the Nomad
+2. Download `supercanvas-1.0-beta.2.apk` from the [Releases](../../releases) page, copy it to the Nomad
    (USB, or download it there in the browser) and open it to install.
 3. Open **Supercanvas**, choose (or make) a folder for your canvases, and allow access to storage when asked.
 
-Or, with USB debugging on: `adb install -r supercanvas-1.0-beta.1.apk`.
+Or, with USB debugging on: `adb install -r supercanvas-1.0-beta.2.apk`.
 
 ## Notes
 

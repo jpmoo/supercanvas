@@ -103,7 +103,7 @@ function atPoint(clientX: number, clientY: number): { x: number; y: number } {
 }
 
 
-export function CanvasTools({ onPlaced, onFiles }: { onPlaced: () => void | Promise<void>; onFiles: () => void }) {
+export function CanvasTools({ title, onPlaced, onFiles }: { title: string; onPlaced: () => void | Promise<void>; onFiles: () => void }) {
   const [shape, setShape] = useState("postIt");
   const [shapesOpen, setShapesOpen] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -243,6 +243,9 @@ export function CanvasTools({ onPlaced, onFiles }: { onPlaced: () => void | Prom
 
   return (
     <div className="tools">
+      {/* The canvas's name, first in the bar and taking what room is left (cut short with "…"); tapping it opens
+          the canvases, as the folder button does. */}
+      <button className="sc-title" title={title} onClick={onFiles}><span>{title}</span></button>
       {tool("files", "Canvases: open, new, rename", <FolderOpen size={15} />, onFiles)}
       <div className="tool-row">
         {/*

@@ -67,7 +67,7 @@ function Canvas({ path, onFiles }: { path: string; onFiles: () => void }) {
   return (
     <>
       <CanvasView collection={state.collection} members={state.members} types={[]} onChanged={() => void read()} />
-      <CanvasTools onPlaced={() => read()} onFiles={onFiles} />
+      <CanvasTools title={store.titleOf(path)} onPlaced={() => read()} onFiles={onFiles} />
     </>
   );
 }
@@ -84,6 +84,19 @@ function App() {
     kind: a.kind,
     done: (v) => { setPicking(null); a.done(v); },
   })), []);
+
+  // Ctrl+Shift+R: the screen's orientation, one step along (as in Writerdeck).
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "r" && store.canOrient()) {
+        e.preventDefault();
+        const now = store.stepOrientation(1);
+        setNotice(`Orientation: ${store.ORIENTATION_NAMES[now]}`);
+      }
+    };
+    addEventListener("keydown", key);
+    return () => removeEventListener("keydown", key);
+  }, []);
 
   // The Android side says when a folder has been picked.
   useEffect(() => {
@@ -144,7 +157,6 @@ function App() {
     <>
       {/* Keyed by file, so a canvas switched to starts clean. */}
       <Canvas key={path} path={path} onFiles={() => setFilesOpen((o) => !o)} />
-      <div className="sc-title" onClick={() => setFilesOpen(true)}>{store.titleOf(path)}</div>
       {filesOpen && (
         <Files
           current={path}

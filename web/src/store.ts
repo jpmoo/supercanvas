@@ -32,6 +32,7 @@ interface Bridge {
   remove(path: string): boolean;
   rename(path: string, newName: string): boolean;
   setOrientation?(o: string): void;
+  orientation?(): string;
   hasStorage?(): boolean;
   askStorage?(): void;
   storageRoot?(): string;
@@ -120,6 +121,31 @@ export const hasFolder = () => fs.hasFolder();
 export const folderName = () => fs.folderName();
 export const pickFolder = () => fs.pickFolder();
 export const setOrientation = (o: string) => fs.setOrientation?.(o);
+
+/*
+ * Screen orientation, as Writerdeck has it: follow the system's own auto-rotate, turn with the device whatever
+ * that switch says (the sensor), or hold one of the four ways round. Kept by the Android side (its "orient"
+ * preference) and applied as the app starts.
+ */
+export const ORIENTATIONS = ["system", "auto", "portrait", "landscape", "landscape-flip", "portrait-flip"] as const;
+export type Orientation = (typeof ORIENTATIONS)[number];
+export const ORIENTATION_NAMES: Record<Orientation, string> = {
+  system: "Follow system", auto: "Auto (sensor)", portrait: "Portrait", landscape: "Landscape",
+  "landscape-flip": "Landscape (flipped)", "portrait-flip": "Portrait (flipped)",
+};
+/** Whether the screen's orientation can be set here (the Nomad, not a desktop browser). */
+export const canOrient = () => Boolean(bridge?.setOrientation);
+export function orientation(): Orientation {
+  const o = bridge?.orientation?.() as Orientation | undefined;
+  return o && ORIENTATIONS.includes(o) ? o : "system";
+}
+/** The next orientation along (or back, with dir -1), set and kept; the one now. */
+export function stepOrientation(dir = 1): Orientation {
+  const i = ORIENTATIONS.indexOf(orientation());
+  const next = ORIENTATIONS[(i + dir + ORIENTATIONS.length) % ORIENTATIONS.length]!;
+  setOrientation(next);
+  return next;
+}
 
 /** Folders and canvases directly inside `path`, folders first, then newest first. */
 export function list(path = ""): Entry[] {

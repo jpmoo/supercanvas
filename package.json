@@ -1,7 +1,7 @@
 {
   "name": "supercanvas",
   "private": true,
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "An infinite canvas for the Supernote Nomad: notes, shapes, links, regions, mind maps and ink, saved to a plain file.",
   "type": "module",
   "license": "MIT",

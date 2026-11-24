@@ -15,11 +15,11 @@ the files panel) is drawn in black on white with big targets.
 .big-btn { font-size: 18px; padding: 14px 26px; border: 2px solid #000; border-radius: 10px; background: #fff; color: #000; }
 
 /* The canvas's name, top middle; a tap opens the files panel. */
-/* The canvas's title: a pill at the top left (the top bar's left end; Supercanvas's layout, below). */
-.sc-title { position: fixed; top: 12px; left: 12px; max-width: 38vw; z-index: 20;
-  height: var(--control-float, 40px); box-sizing: border-box; display: flex; align-items: center;
-  padding: 0 16px; border: 1px solid #000; border-radius: 999px; background: #fff;
-  font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The canvas's name: the first thing in the top toolbar (CanvasTools), taking the room the tools leave. */
+.tools .sc-title { flex: 1 1 auto; min-width: 0; height: var(--bar-btn); display: flex; align-items: center;
+  margin-right: 6px; padding: 0 10px; border: none; background: none; color: #000; font: inherit; font-size: 16px;
+  font-weight: 600; text-align: left; cursor: pointer; }
+.tools .sc-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-notice { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 200;
   padding: 10px 16px; border: 2px solid #000; border-radius: 8px; background: #fff; font-size: 15px; }
 
@@ -106,28 +106,30 @@ the files panel) is drawn in black on white with big targets.
  * .cv-toolbar, put into the row's #sc-viewbar). A tool's own controls (the pen's, the shapes) run down the
  * left side beneath it, until that tool is pressed again or the strip's X.
  */
+:root { --bar-btn: 34px; }
 .tools {
-  top: 12px !important; left: auto !important; right: 12px !important;
-  flex-direction: row !important; align-items: center !important; gap: 2px !important;
-  padding: 3px 4px; background: var(--surface); border: 1px solid #000; border-radius: 12px;
+  top: 8px !important; left: 8px !important; right: 8px !important;
+  flex-direction: row !important; align-items: center !important; gap: 0 !important;
+  padding: 2px 4px; background: var(--surface); border: 1px solid #000; border-radius: 10px;
 }
 /* Inside the one outline, the buttons have none of their own: a tool in hand is shown by its fill. */
 .tools button.tool, .tools .sc-viewbar button.icon-btn {
-  width: var(--control-float, 40px) !important; height: var(--control-float, 40px) !important;
+  width: var(--bar-btn) !important; height: var(--bar-btn) !important;
   border-color: transparent !important; background: transparent !important; box-shadow: none !important;
 }
 .tools button.tool.armed, .tools .sc-viewbar button.icon-btn.on { background: var(--accent-wash, #e4e4e4) !important; }
 .tools .tools-sep, .tools .sc-viewbar .cv-tb-sep {
-  width: 1px; height: calc(var(--control-float, 40px) - 14px); background: var(--line, #999) !important; margin: 0 4px;
+  width: 1px; height: calc(var(--bar-btn) - 12px); background: var(--line, #999) !important; margin: 0 3px; flex: none;
 }
-.sc-viewbar, .tools .sc-viewbar .cv-toolbar { display: flex; align-items: center; gap: 2px; }
+.sc-viewbar, .tools .sc-viewbar .cv-toolbar { display: flex; align-items: center; gap: 0; flex: none; }
+.tools .sc-viewbar input.cv-zoom { width: 50px; height: 26px; }
 .tools .sc-viewbar .cv-toolbar {
   position: static; padding: 0; height: auto;
   border: none !important; background: transparent !important; box-shadow: none !important;
 }
 .tools .tool-menu.tool-strip {
-  position: fixed; top: calc(var(--control-float, 40px) + 24px); left: 12px; right: auto; bottom: auto;
-  width: auto; max-height: calc(100vh - var(--control-float, 40px) - 36px);
+  position: fixed; top: calc(var(--bar-btn) + 20px); left: 8px; right: auto; bottom: auto;
+  width: auto; max-height: calc(100vh - var(--bar-btn) - 32px);
   /* !important: the shape menu's old rule (.tool-menu.shape-row) sets its row direction so. */
   flex-direction: column !important; flex-wrap: nowrap; align-items: center; gap: 4px;
   padding: 6px 4px; overflow-x: hidden; overflow-y: auto; z-index: 26; min-width: 0 !important;
@@ -141,3 +143,27 @@ the files panel) is drawn in black on white with big targets.
 /* The minimap to the bottom right, which the view's controls have left: the left side is the strips'. */
 .cv-wrap .cv-minimap, .cv-wrap .cv-minimap-open { left: auto; right: 10px; }
 .cv-wrap .cv-minimap .cv-minimap-close { right: auto; left: -8px; }
+
+/* About Supercanvas (the Files panel). */
+.files-about { flex: 1; overflow-y: auto; padding: 18px; font-size: 16px; line-height: 1.45; }
+.files-about h2 { margin: 0 0 2px; font-size: 24px; }
+.files-about-version { margin: 0 0 14px; color: #444; }
+.files-about p { margin: 0 0 12px; }
+.files-about dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 14px 0; }
+.files-about dt { font-weight: 600; }
+.files-about dd { margin: 0; word-break: break-word; }
+.files-about a { color: #000; }
+.files-about-note { font-size: 14px; color: #444; border-top: 1px solid #999; padding-top: 12px; }
+.files-about-open { margin-top: 0; }
+
+/* Screen orientation (the Files panel): a label, then ‹ the choice › */
+.files-orient { display: flex; align-items: center; margin: 10px 18px 0; gap: 6px; }
+.files-orient-label { flex: 1; font-size: 16px; }
+.files-orient-step, .files-orient-value { border: 1.5px solid #000; border-radius: 8px; background: #fff; color: #000;
+  height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+.files-orient-step { width: 40px; }
+.files-orient-value { min-width: 170px; padding: 0 12px; font-size: 16px; }
+
+/* The canvas is the whole window: no frame or rounded corners, the paper running to every edge. */
+.cv-wrap { border: none !important; border-radius: 0 !important; height: 100vh !important; min-height: 0 !important; }
+/* (The height in the stylesheet, not the canvas's own measured one: it follows the screen as it turns.) */

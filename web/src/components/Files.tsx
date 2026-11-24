@@ -8,8 +8,9 @@
  * canvases can be filed.
  */
 import { useState } from "react";
-import { ChevronLeft, FileDown, FilePlus, Folder, FolderPlus, Pencil, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileDown, FilePlus, Folder, FolderPlus, Pencil, Trash2, X } from "lucide-react";
 import { exportCanvas } from "../export.ts";
+import { HOME, VERSION } from "../version.ts";
 import * as store from "../store.ts";
 
 export function Files({
@@ -31,6 +32,8 @@ export function Files({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
+  const [about, setAbout] = useState(false);
+  const [orient, setOrient] = useState(() => store.orientation());
   const [exporting, setExporting] = useState(false);
   async function exportAs(kind: "png" | "pdf") {
     setError(null);
@@ -77,6 +80,33 @@ export function Files({
           <button className="files-icon" title="Close" onClick={onClose}><X size={20} /></button>
         </div>
 
+        {about ? (
+          <div className="files-about">
+            <h2>Supercanvas</h2>
+            <p className="files-about-version">Version {VERSION}</p>
+            <p>
+              An infinite canvas for the Supernote Nomad: notes, shapes, connections, simple mind maps, pictures and
+              handwriting, with Supernote's own real-time pen engine for the ink.
+            </p>
+            <p>
+              No sync and no accounts: each canvas is one <code>.supercanvas</code> file in the folder you chose,
+              saved a moment after every change.
+            </p>
+            <dl>
+              <dt>License</dt><dd>MIT — free to use, change and share.</dd>
+              <dt>By</dt><dd>Jeff Moore, 2026</dd>
+              <dt>Source</dt><dd><a href={HOME} target="_blank" rel="noreferrer">{HOME.replace("https://", "")}</a></dd>
+              <dt>Built with</dt><dd>React, CodeMirror and Lucide icons (each under its own open-source license).</dd>
+            </dl>
+            <p className="files-about-note">
+              A beta, tested on the Supernote Nomad only. The live ink uses undocumented parts of Supernote's
+              firmware, so a firmware update could change how it behaves.
+            </p>
+            <div className="files-actions">
+              <button onClick={() => setAbout(false)}><ChevronLeft size={16} /> Back</button>
+            </div>
+          </div>
+        ) : (<>
         <div className="files-current">
           <div className="files-current-name">{store.titleOf(current)}</div>
           <div className="files-actions">
@@ -146,9 +176,26 @@ export function Files({
           {!entries.length && <div className="files-empty">No canvases here yet.</div>}
         </div>
 
+        {/* Screen orientation, as in Writerdeck: tap to step through, or ‹ › either way (Ctrl+Shift+R too). */}
+        {store.canOrient() && (
+          <div className="files-orient">
+            <span className="files-orient-label">Orientation</span>
+            <button className="files-orient-step" aria-label="Previous" onClick={() => setOrient(store.stepOrientation(-1))}>
+              <ChevronLeft size={18} />
+            </button>
+            <button className="files-orient-value" onClick={() => setOrient(store.stepOrientation(1))}>
+              {store.ORIENTATION_NAMES[orient]}
+            </button>
+            <button className="files-orient-step" aria-label="Next" onClick={() => setOrient(store.stepOrientation(1))}>
+              <ChevronRight size={18} />
+            </button>
+          </div>
+        )}
         {store.onDevice && (
           <button className="files-change" onClick={() => void store.chooseFolder()}>Use a different folder…</button>
         )}
+        <button className="files-change files-about-open" onClick={() => setAbout(true)}>About Supercanvas</button>
+        </>)}
       </div>
     </div>
   );

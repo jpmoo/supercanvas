@@ -636,7 +636,8 @@ export function CanvasView({
        * subtracting again gave the bottom 34 and the other three 22, which is
        * exactly the uneven gap it looks like.
        */
-      const hair = document.documentElement.classList.contains("framed") ? 0 : 12;
+      // Supercanvas: the canvas is the whole window, edge to edge, so nothing is held back at the bottom.
+      const hair = 0;
       setWrapH(Math.max(460, window.innerHeight - el.getBoundingClientRect().top - hair));
     };
     measure();

@@ -15,7 +15,9 @@ import { centerline, onInk, paint } from "../ink.ts";
 type Rect = { x: number; y: number; w: number; h: number };
 type View = { x: number; y: number; z: number };
 
-const KEPT = "talaris-minimap";
+// Supercanvas: closed until opened (the map button, bottom right), and remembered after. A key of its own, so a
+// map left open by an earlier build starts closed too.
+const KEPT = "supercanvas.minimap";
 /** The map's size on screen, at most. */
 const MAP_W = 200, MAP_H = 140;
 
@@ -27,7 +29,7 @@ export function Minimap({ boxes, regions, view, setView, wrap }: {
   wrap: React.RefObject<HTMLDivElement | null>;
 }) {
   const [open, setOpen] = useState<boolean>(() => {
-    try { return localStorage.getItem(KEPT) !== "closed"; } catch { return true; }
+    try { return localStorage.getItem(KEPT) === "open"; } catch { return false; }
   });
   useEffect(() => {
     try { localStorage.setItem(KEPT, open ? "open" : "closed"); } catch { /* private */ }

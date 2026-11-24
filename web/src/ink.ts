@@ -27,8 +27,8 @@ type Pt = [number, number, number];
 
 /** The colors offered, the first the theme's own text (worked out as it is chosen). */
 export const INK_COLORS = ["text", "#e03131", "#f08c00", "#fab005", "#2f9e44", "#1971c2", "#9c36b5"];
-/** Each tool's three widths, in canvas units: fine, medium, broad. */
-export const INK_SIZES: Record<"pen" | "highlighter", number[]> = { pen: [2, 4, 8], highlighter: [14, 22, 34] };
+/** Each tool's five widths, in canvas units: fine, medium, broad, thick, heavy. */
+export const INK_SIZES: Record<"pen" | "highlighter", number[]> = { pen: [3, 6, 12, 18, 27], highlighter: [14, 22, 34, 48, 64] };
 
 interface State {
   /** An ink tool is chosen: the pen draws on the canvas. */
@@ -53,7 +53,7 @@ const state: State = {
   on: false,
   tool: first.tool === "highlighter" || first.tool === "eraser" ? first.tool : "pen",
   color: typeof first.color === "string" ? first.color : "text",
-  size: typeof first.size === "number" ? Math.max(0, Math.min(2, first.size)) : 1,
+  size: typeof first.size === "number" ? Math.max(0, Math.min(INK_SIZES.pen.length - 1, first.size)) : 1,
   finger: first.finger === true,
   live: null,
   version: 0,
@@ -258,6 +258,15 @@ export function extend(p: Pt, zoom: number) {
   live.points.push(p);
   tell("point");
 }
+/**
+ * The stroke in hand, its points all replaced: the pen's every sample, as the device recorded them (InkLayer, from
+ * MainActivity.penStroke), for the page's own, a point or so a frame. Before end().
+ */
+export function retrace(points: Pt[]) {
+  const live = state.live;
+  if (!live || points.length < 2) return;
+  live.points = points;
+}
 /** The pen lifted: the stroke kept as an item (one dot, too), or the eraser's sweep kept as one step. */
 export function end() {
   if (pressTool === "eraser") {
@@ -320,7 +329,7 @@ export function touches(s: InkItem, x: number, y: number, reach: number): boolea
 
 /**
  * A pen's stroke as a filled outline, wider where it was pressed harder: each point offset to either side by half
- * its width, along the line's normal, the two sides joined round at the ends. Smoothed through the midpoints.
+ * its width, along the line's normal, the two sides joined round at the ends.
  */
 export function outline(points: Pt[], width: number): string {
   if (!points.length) return "";
@@ -339,22 +348,50 @@ export function outline(points: Pt[], width: number): string {
     left.push([x + nx * r, y + ny * r]);
     right.push([x - nx * r, y - ny * r]);
   }
+  /*
+   * A curve through every point the pen gave (Catmull-Rom, as cubic Béziers): smooth, as a hand's line is, but
+   * through the points themselves, not cutting the corners as the old curve through the midpoints did — so the
+   * stroke settles as Supernote's own pen drew it while it was written. (Straight lines between the points were
+   * tried, 2026-11-24: the page hears the pen only about once a frame, so they came out as visible corners.)
+   */
   const smooth = (pts: [number, number][]) => {
     let d = "";
-    for (let i = 1; i < pts.length - 1; i++) {
-      const mx = (pts[i]![0] + pts[i + 1]![0]) / 2, my = (pts[i]![1] + pts[i + 1]![1]) / 2;
-      d += `Q${pts[i]![0].toFixed(1)},${pts[i]![1].toFixed(1)} ${mx.toFixed(1)},${my.toFixed(1)}`;
+    const f = (n: number) => n.toFixed(1);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)]!, p1 = pts[i]!, p2 = pts[i + 1]!, p3 = pts[Math.min(pts.length - 1, i + 2)]!;
+      const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+      const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+      d += `C${f(c1x)},${f(c1y)} ${f(c2x)},${f(c2y)} ${f(p2[0])},${f(p2[1])}`;
     }
-    const last = pts[pts.length - 1]!;
-    return d + `L${last[0].toFixed(1)},${last[1].toFixed(1)}`;
+    return d;
   };
-  const end = points[points.length - 1]!, start = points[0]!;
-  const rEnd = rad(end), rStart = rad(start);
+  const last = points.length - 1;
   const back = [...right].reverse();
+  /*
+   * A round cap: a half circle from one side to the other, bulging out past the stroke's end — drawn with two
+   * curves through the point straight ahead, not an arc, whose way round depended on the stroke's direction and
+   * so went inward at one end or the other, leaving a bite out of it unfilled.
+   */
+  const cap = (at: number, from: [number, number], to: [number, number]) => {
+    const c = points[at]!;
+    // Outward: from the nearest point that isn't the same one, toward this end.
+    let o = at;
+    do o += at === 0 ? 1 : -1; while (o > 0 && o < last && Math.hypot(points[o]![0] - c[0], points[o]![1] - c[1]) < 1e-6);
+    let tx = c[0] - points[o]![0], ty = c[1] - points[o]![1];
+    const tl = Math.hypot(tx, ty) || 1;
+    tx /= tl; ty /= tl;
+    const r = rad(c), k = 0.5523 * r;
+    const ahead: [number, number] = [c[0] + tx * r, c[1] + ty * r];
+    // The side directions, as the points themselves lie (so either turn is right).
+    const ax = (from[0] - c[0]) / (r || 1), ay = (from[1] - c[1]) / (r || 1);
+    const f = (n: number) => n.toFixed(1);
+    return `C${f(from[0] + tx * k)},${f(from[1] + ty * k)} ${f(ahead[0] + ax * k)},${f(ahead[1] + ay * k)} ${f(ahead[0])},${f(ahead[1])}`
+      + `C${f(ahead[0] - ax * k)},${f(ahead[1] - ay * k)} ${f(to[0] + tx * k)},${f(to[1] + ty * k)} ${f(to[0])},${f(to[1])}`;
+  };
   return `M${left[0]![0].toFixed(1)},${left[0]![1].toFixed(1)}` + smooth(left)
-    + `A${rEnd.toFixed(1)},${rEnd.toFixed(1)} 0 0,1 ${back[0]![0].toFixed(1)},${back[0]![1].toFixed(1)}`
+    + cap(last, left[last]!, right[last]!)
     + smooth(back)
-    + `A${rStart.toFixed(1)},${rStart.toFixed(1)} 0 0,1 ${left[0]![0].toFixed(1)},${left[0]![1].toFixed(1)}Z`;
+    + cap(0, right[0]!, left[0]!) + "Z";
 }
 
 /** A highlighter's stroke: one even line through the points, smoothed. */

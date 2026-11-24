@@ -79,7 +79,6 @@ export function wearTheme(): void {
     .cv-wrap, .cv-node, .cv-region, .tools, .tool-menu, .menu-item, .hint, .modal-card, .cv-zoom { font-family: var(--font) !important; }
     input, select, textarea, button { color: inherit; font-family: inherit; }
     .cv-region-title { font-family: var(--font); letter-spacing: 1px; color: var(--muted); }
-    .cv-marquee { border: 2px dashed #000 !important; background: transparent !important; }
 
     /* The paper: dots, graph lines, or nothing — moving and scaling with the view. */
     .cv-wrap.paper-dots {

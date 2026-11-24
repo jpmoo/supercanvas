@@ -11,7 +11,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef } from "react";
 import { inkOf } from "../api.ts";
 import type { InkItem } from "../document.ts";
 import { nativeDrawing, wipeDevicePen } from "../nativePen.ts";
-import { begin, cancel, centerline, end, erasingByEnd, extend, inkState, onInk, onLive, outline, paint, redo, resolveColor, setInk, undo } from "../ink.ts";
+import { begin, cancel, centerline, end, erasingByEnd, extend, inkState, onInk, onLive, outline, paint, resolveColor, retrace, setInk } from "../ink.ts";
 
 /** How the canvas sits on the screen: the layer's own transform and the wrap's place (as CanvasTools does). */
 type View = { left: number; top: number; e: number; f: number; z: number };
@@ -37,6 +37,13 @@ const radius = (width: number, pr: number) => (width / 2) * (0.35 + 0.65 * Math.
 export function InkLayer({ span, chosen = [] }: { span: number; chosen?: string[] }) {
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const svg = useRef<SVGSVGElement | null>(null);
+  /*
+   * Strokes the device has drawn (Supernote's pen) that the page holds back for now: drawn hidden, so while
+   * writing the screen shows the device's own ink alone — not that and the page's copy, a little different,
+   * on top of it, nor a letter wiped and redrawn as the next is written. When writing pauses (or a finger,
+   * another tool, or leaving the app interrupts) they are shown; the device's copy goes later (letGo).
+   */
+  const swapPending = useRef(new Set<string>());
   useEffect(() => onInk(redraw), []);
 
   // The pen's presses, while an ink tool is chosen: heard before the canvas's own handlers (capture), and kept from
@@ -70,17 +77,79 @@ export function InkLayer({ span, chosen = [] }: { span: number; chosen?: string[
       if (sheet.width !== w || sheet.height !== h) { sheet.width = w; sheet.height = h; }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
-    const wipe = () => ctx.clearRect(0, 0, sheet.width, sheet.height);
+    // Cleared only when something was drawn on it: clearing a sheet the size of the screen makes the page
+    // repaint all of it, and on the Nomad that refresh blanks Supernote's ink being written over it.
+    let sheetDrawn = false;
+    const wipe = () => {
+      if (!sheetDrawn) return;
+      sheetDrawn = false;
+      ctx.clearRect(0, 0, sheet.width, sheet.height);
+    };
     (wrap as HTMLElement & { wipeInk?: () => void }).wipeInk = () => {
       if (drawing !== null) return;
       wipe();
-      // Every stroke's end, the device's own layer wiped too: whatever it drew (or wrongly drew) goes.
-      // Where it was written, on the screen: the last stroke's box (the one just kept), for a clean refresh.
-      const last = svg.current?.querySelector(".cv-ink > path:last-of-type") as SVGGraphicsElement | null;
-      const box = byDevice && last ? last.getBoundingClientRect() : undefined;
-      byDevice = false;
-      wipeDevicePen(box);
     };
+
+    /*
+     * The held-back strokes shown (see swapPending) once writing pauses — but the device's copy of them is
+     * kept, over the page's: clearing it is what blanked a word on the Nomad until the panel next refreshed
+     * the page's own pixels, a few seconds on. It is let go only when it would be wrong to keep — the view
+     * about to move (a finger, a wheel), a tool or control chosen, the app put away, the canvas drawn afresh.
+     */
+    const pendingSwap = swapPending.current;
+    const SWAP_IDLE_MS = 1500;
+    let swapTimer = 0;
+    let deviceHas = false;
+    const swapNow = () => {
+      clearTimeout(swapTimer);
+      swapTimer = 0;
+      if (!pendingSwap.size) return;
+      pendingSwap.clear();
+      redraw();
+    };
+    const letGo = () => {
+      const had = pendingSwap.size > 0;
+      swapNow();
+      if (!deviceHas) return;
+      deviceHas = false;
+      // A couple of frames on, so the page's strokes are on the screen before the device's go.
+      if (had) requestAnimationFrame(() => requestAnimationFrame(() => wipeDevicePen()));
+      else wipeDevicePen();
+    };
+    const scheduleSwap = () => {
+      clearTimeout(swapTimer);
+      const tryIt = () => {
+        if (drawing !== null) { swapTimer = window.setTimeout(tryIt, 400); return; }
+        swapNow();
+      };
+      swapTimer = window.setTimeout(tryIt, SWAP_IDLE_MS);
+    };
+    /** A stroke just kept that the device drew: held back until the swap. */
+    const holdBack = (dev: boolean) => {
+      if (!dev) return;
+      deviceHas = true;
+      const all = inkOf();
+      const k = all[all.length - 1];
+      if (k) pendingSwap.add(k.id);
+      scheduleSwap();
+    };
+    // Interrupted: a finger (not a palm while the pen is near), a mouse, the pen on a control, another tool,
+    // a wheel, or the app put away.
+    const CONTROL = "button, input, textarea, .tools, .tool-menu, .cv-toolbar, .cv-minimap, .cv-minimap-open, .menu, .ctx-menu, .files-backdrop";
+    const interrupt = (e: PointerEvent) => {
+      if (e.pointerType === "pen" && !(e.target as HTMLElement).closest?.(CONTROL)) return;
+      if (e.pointerType === "touch" && near()) return;
+      letGo();
+    };
+    let toolWas = `${inkState().on} ${inkState().tool}`;
+    const unTool = onInk(() => {
+      const now = `${inkState().on} ${inkState().tool}`;
+      if (now !== toolWas) { toolWas = now; letGo(); }
+    });
+    const away = () => { if (document.visibilityState !== "visible") letGo(); };
+    window.addEventListener("pointerdown", interrupt, true);
+    window.addEventListener("wheel", letGo, { capture: true, passive: true });
+    document.addEventListener("visibilitychange", away);
     const toScreen = (x: number, y: number) => [x * view.z + view.e, y * view.z + view.f] as const;
     const paintLive = (kind: "begin" | "point" | "end") => {
       const l = inkState().live;
@@ -92,6 +161,7 @@ export function InkLayer({ span, chosen = [] }: { span: number; chosen?: string[
         color = resolveColor(l.color);
       }
       const pts = l.points;
+      sheetDrawn = true;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.strokeStyle = color;
@@ -191,17 +261,53 @@ export function InkLayer({ span, chosen = [] }: { span: number; chosen?: string[
         extend(p, z);
       }
     };
+    /*
+     * The stroke Supernote's pen drew, kept as it drew it: every sample the device had (MainActivity.penStrokes),
+     * not only the page's, about one a frame — with which the kept stroke came out smoothed or cornered where the
+     * line on the screen was neither. The device queues each stroke as it ends; the one taken is the one that
+     * begins where this one did (the next may have ended already, if written quickly — kept for its own turn),
+     * and if none does, the page's own points stand. Points under half a screen pixel apart are left out.
+     */
+    let deviceStrokes: [number, number, number][][] = [];
+    const retraceFromDevice = () => {
+      const raw = (window as unknown as { SC?: { penStrokes?: () => string } }).SC?.penStrokes?.();
+      if (raw) {
+        try { deviceStrokes.push(...(JSON.parse(raw) as [number, number, number][][])); } catch { /* none */ }
+      }
+      const began = inkState().live?.points[0];
+      if (!began) return;
+      // The page's first point, on the screen, as the device's are.
+      const bx = began[0] * view.z + view.e + view.left, by = began[1] * view.z + view.f + view.top;
+      const at = deviceStrokes.findIndex((st) => st.length > 0 && Math.hypot(st[0]![0] - bx, st[0]![1] - by) <= 12);
+      if (at < 0) { deviceStrokes = deviceStrokes.slice(-8); return; }
+      const samples = deviceStrokes[at]!;
+      deviceStrokes = deviceStrokes.slice(at + 1);
+      const pts: [number, number, number][] = [];
+      for (const [cx, cy, pr] of samples) {
+        const last = pts[pts.length - 1];
+        // The pen lifting says no pressure at all: kept at the last pressure, not pinched to a point.
+        const p: [number, number, number] = [(cx - view.left - view.e) / view.z, (cy - view.top - view.f) / view.z, pr || last?.[2] || 0.5];
+        if (last && Math.hypot(p[0] - last[0], p[1] - last[1]) * view.z < 0.5) { last[2] = Math.max(last[2], p[2]); continue; }
+        pts.push(p);
+      }
+      retrace(pts);
+    };
     const up = (e: PointerEvent) => {
       if (drawing !== e.pointerId) return;
       e.preventDefault();
       e.stopPropagation();
       drawing = null;
+      const dev = byDevice;
+      if (dev) retraceFromDevice();
       end();
+      holdBack(dev);
     };
     const lost = (e: PointerEvent) => {
       if (drawing !== e.pointerId) return;
       drawing = null;
+      const dev = byDevice;
       end();
+      holdBack(dev);
     };
     wrap.addEventListener("pointerdown", down, true);
     // The canvas pinches and pans with touch events of its own (CanvasView): kept from them too while the pen is near.
@@ -211,6 +317,11 @@ export function InkLayer({ span, chosen = [] }: { span: number; chosen?: string[
     wrap.addEventListener("pointerup", up, true);
     wrap.addEventListener("pointercancel", lost, true);
     return () => {
+      letGo();
+      unTool();
+      window.removeEventListener("pointerdown", interrupt, true);
+      window.removeEventListener("wheel", letGo, true);
+      document.removeEventListener("visibilitychange", away);
       unLive();
       sheet.remove();
       wrap.removeEventListener("pointerdown", down, true);
@@ -224,19 +335,12 @@ export function InkLayer({ span, chosen = [] }: { span: number; chosen?: string[
     };
   }, []);
 
-  // Keys: Ctrl+Z and Ctrl+Shift+Z (or Ctrl+Y) undo and do again ink's own steps; Escape puts the pen down.
+  // Escape puts the pen down. (Undo and redo are the whole canvas's now: main.tsx, api.ts.)
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.closest?.("input, textarea, [contenteditable=true]")) return;
-      const ctl = e.ctrlKey || e.metaKey;
-      if (ctl && e.key.toLowerCase() === "z" && inkState().on) {
-        e.preventDefault();
-        if (e.shiftKey) redo(); else undo();
-      } else if (ctl && e.key.toLowerCase() === "y" && inkState().on) {
-        e.preventDefault();
-        redo();
-      } else if (e.key === "Escape" && inkState().on) {
+      if (e.key === "Escape" && inkState().on) {
         cancel();
         setInk(false);
       }
@@ -251,7 +355,9 @@ export function InkLayer({ span, chosen = [] }: { span: number; chosen?: string[
     wrap?.wipeInk?.();
   });
 
-  const strokes = inkOf();
+  // Strokes held back for the swap (swapPending) aren't in the page at all yet: even an invisible element
+  // added to this canvas-sized layer makes the page repaint, which blanks Supernote's ink as it's written.
+  const strokes = swapPending.current.size ? inkOf().filter((k) => !swapPending.current.has(k.id)) : inkOf();
   // What the Select tool has chosen: a dashed box round each chosen stroke.
   const chosenInk = chosen.some((id) => id.startsWith("ink-")) ? new Set(chosen) : null;
   // Highlighters first, the pen's over them.

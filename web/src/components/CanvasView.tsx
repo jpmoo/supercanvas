@@ -4,7 +4,7 @@ import { clearInk, placeStrokes, recordMove, removeStrokes } from "../ink.ts";
 import type { InkItem } from "../document.ts";
 import { Minimap } from "./Minimap.tsx";
 import { InkLayer } from "./InkLayer.tsx";
-import { AlignCenter, AlignLeft, AlignRight, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Grid3x3, Grip, GripHorizontal, Square, Image as ImageIcon, Minus, Plus, Lock, Trash2, Unlock } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Grid3x3, Grip, GripHorizontal, Group, Square, Image as ImageIcon, Minus, Plus, Trash2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { readableOn } from "../lib/display.ts";
@@ -428,13 +428,8 @@ export function CanvasView({
   // Locked: pan/zoom + selecting and editing block contents stay live, but no
   // structural editing (move/resize/connect/create/region/menus/clear). Phones
   // are always locked — the canvas has too many affordances for touch.
-  const [lockPref, setLockPref] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("hn.canvas.locked") === "1";
-    } catch {
-      return false;
-    }
-  });
+  // Supercanvas: no lock (2026-11-24) — the canvas is always editable; a lock once saved is ignored.
+  const lockPref = false;
   /*
    * Whether the desktop shows through — the Mac's `seeThrough`, and its reason:
    * "off is for when the canvas is the work and the desktop is a distraction."
@@ -503,17 +498,6 @@ export function CanvasView({
     });
 
   const locked = isMobile || lockPref;
-  const toggleLock = () => {
-    setLockPref((v) => {
-      const next = !v;
-      try {
-        localStorage.setItem("hn.canvas.locked", next ? "1" : "0");
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  };
 
   // Transient feedback: a toast for quick acts, a dialog for created collections.
   const [toast, setToast] = useState<string | null>(null);
@@ -1724,6 +1708,36 @@ export function CanvasView({
     el.style.strokeWidth = String(2 / view.z);
   };
 
+  /*
+   * The view while a finger pans or pinches: moved straight on the page — the layer's transform and the
+   * paper's grid — at most once a frame, and only handed to React (setView) as the gesture ends. A re-render
+   * of the whole canvas for every finger movement is what made panning and zooming jumpy on the Nomad.
+   */
+  const viewNow = useRef(view);
+  viewNow.current = view;
+  const layerRef = useRef<HTMLDivElement | null>(null);
+  const live = useRef<{ x: number; y: number; z: number } | null>(null);
+  const liveFrame = useRef(0);
+  const setLive = (v: { x: number; y: number; z: number }) => {
+    live.current = v;
+    if (liveFrame.current) return;
+    liveFrame.current = requestAnimationFrame(() => {
+      liveFrame.current = 0;
+      const lv = live.current, layer = layerRef.current, wrap = wrapRef.current;
+      if (!lv || !layer || !wrap) return;
+      layer.style.transform = `translate(${lv.x}px, ${lv.y}px) scale(${lv.z})`;
+      wrap.style.setProperty("--cv-x", `${lv.x}px`);
+      wrap.style.setProperty("--cv-y", `${lv.y}px`);
+      wrap.style.setProperty("--cv-z", String(lv.z));
+    });
+  };
+  /** The gesture over: the view it ended at becomes the canvas's view. */
+  const endLive = () => {
+    const lv = live.current;
+    live.current = null;
+    if (lv) setView(lv);
+  };
+
   // Fully functional updates so rapid wheel events never read a stale zoom
   // (the old closure-over-view version stuttered under fast pinches).
   const zoomBy = (factor: number, sx: number, sy: number) => {
@@ -1894,20 +1908,20 @@ export function CanvasView({
       const ppx = prev.m.x - rect.left;
       const ppy = prev.m.y - rect.top;
       const ratio = prev.d > 0 ? d / prev.d : 1;
-      setView((v) => {
-        const z = Math.min(3, Math.max(0.1, v.z * ratio));
-        // The world point under the previous midpoint stays under the new one
-        // (zoom about the pinch) and follows the midpoint's travel (pan).
-        const wx = (ppx - v.x) / v.z;
-        const wy = (ppy - v.y) / v.z;
-        return { z, x: px - wx * z, y: py - wy * z };
-      });
+      const v = live.current ?? viewNow.current;
+      const z = Math.min(3, Math.max(0.1, v.z * ratio));
+      // The world point under the previous midpoint stays under the new one
+      // (zoom about the pinch) and follows the midpoint's travel (pan).
+      const wx = (ppx - v.x) / v.z;
+      const wy = (ppy - v.y) / v.z;
+      setLive({ z, x: px - wx * z, y: py - wy * z });
       prev = { d, m };
     };
     const onEnd = (e: TouchEvent) => {
       if (e.touches.length < 2) {
         pinchRef.current = false;
         prev = null;
+        endLive();
       }
     };
     el.addEventListener("touchstart", onStart, { passive: false });
@@ -1976,7 +1990,9 @@ export function CanvasView({
      * off — and this is that tool asking: the strip sets the flag on the root
      * because it is a sibling of this component and not its parent.
      */
-    const arming = document.documentElement.dataset.select === "on";
+    // The Select tool, as a lasso or a box (CanvasTools' strip says which).
+    const arming = !!document.documentElement.dataset.select;
+    const byBox = document.documentElement.dataset.select === "box";
     // A press inside what is chosen takes hold of all of it — the only way to move chosen ink, which has no
     // box of its own to press on.
     const chosen = selected.length ? rectFromIds(selected) : null;
@@ -1987,7 +2003,7 @@ export function CanvasView({
         return;
       }
     }
-    if (arming && !e.shiftKey && !locked) {
+    if (arming && !byBox && !e.shiftKey && !locked) {
       // The Select tool: a loop drawn round what is to be chosen (a lasso).
       const p = toCanvas(e.clientX, e.clientY);
       drag.current = { kind: "lasso", points: [[p.x, p.y]] };
@@ -2049,7 +2065,7 @@ export function CanvasView({
       const nx = d.ox + (e.clientX - d.sx);
       const ny = d.oy + (e.clientY - d.sy);
       if (Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) > 3) d.moved = true;
-      setView((v) => ({ ...v, x: nx, y: ny }));
+      setLive({ ...(live.current ?? viewNow.current), x: nx, y: ny });
     } else if (d.kind === "node") {
       const p = toCanvas(e.clientX, e.clientY);
       /*
@@ -2159,6 +2175,7 @@ export function CanvasView({
   };
   const onPointerUp = () => {
     holding(false);
+    endLive();
     const d = drag.current;
     drag.current = null;
     setGuides([]);
@@ -3695,7 +3712,7 @@ export function CanvasView({
         }
       }}
     >
-      <div className="cv-layer" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}>
+      <div className="cv-layer" ref={layerRef} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}>
         {regions.map((rg) => {
           const rr = regionRect(rg);
           if (!rr) return null;
@@ -3951,10 +3968,13 @@ export function CanvasView({
             const inked = selected.length - boxes.length;
             if (selected.length < 2 && !inked) return null;
             return (
-              <div className="cv-chosen-actions" style={{ left: bb.x, top: bb.y - 38 }}>
+              // Kept the same size on the screen whatever the zoom (the layer is scaled), above the chosen box.
+              <div className="cv-chosen-actions" style={{ left: bb.x, top: bb.y - 8 / view.z, transform: `translateY(-100%) scale(${1 / view.z})` }}>
                 {boxes.length > 1 && (
                   <button
-                    className="cv-make-region"
+                    className="cv-chosen-btn"
+                    title={`Make a region of these ${boxes.length}`}
+                    aria-label="Make a region"
                     onClick={() => {
                       // A node lives in at most one region: pull from others first.
                       const cleaned = regions
@@ -3968,12 +3988,13 @@ export function CanvasView({
                       showToast("Region made — long-press it to name or color it.");
                     }}
                   >
-                    Create region ({boxes.length})
+                    <Group size={30} />
                   </button>
                 )}
-                {/* Delete with the pen: a tablet has no Delete key. */}
-                <button className="cv-make-region" onClick={() => askRemove([...selected])}>
-                  Delete ({selected.length})
+                {/* Delete with the pen: a tablet has no Delete key. Asks first (the dialog below). */}
+                <button className="cv-chosen-btn" title={`Delete these ${selected.length}`} aria-label="Delete"
+                  onClick={() => askRemove([...selected])}>
+                  <Trash2 size={30} />
                 </button>
               </div>
             );
@@ -4038,18 +4059,6 @@ export function CanvasView({
       {(() => {
         const viewBar = (
         <div className="cv-toolbar">
-          {!isMobile && (
-            <>
-              <button
-                className={`icon-btn cv-lock${lockPref ? " on" : ""}`}
-                title={lockPref ? "Locked — click to edit" : "Lock canvas (navigation only)"}
-                onClick={toggleLock}
-              >
-                {lockPref ? <Lock size={14} /> : <Unlock size={14} />}
-              </button>
-              <span className="cv-tb-sep" />
-            </>
-          )}
           <button
             className={`icon-btn cv-grid-toggle${grid ? " on" : ""}`}
             title={paper === "dots" ? "Dots — click for graph lines" : paper === "lines" ? "Graph lines — click for none" : "No grid — click for dots"}

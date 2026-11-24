@@ -13,7 +13,7 @@ import { CanvasView } from "./components/CanvasView.tsx";
 import { CanvasTools } from "./components/CanvasTools.tsx";
 import { Files } from "./components/Files.tsx";
 import { Picker } from "./components/Pickers.tsx";
-import { flush, hold, onSaveFailed, where, type Collection, type Member } from "./api.ts";
+import { flush, hold, onRestored, onSaveFailed, redo, undo, where, type Collection, type Member } from "./api.ts";
 import { getDocument, toCollection, toMembers } from "./document.ts";
 import * as store from "./store.ts";
 import "./canvas-forked.css";
@@ -61,12 +61,19 @@ function Canvas({ path, onFiles }: { path: string; onFiles: () => void }) {
   useEffect(() => {
     void read();
   }, [read, path]);
+  /*
+   * An undo or redo has put another document in place (api.ts): read again, and the canvas is drawn afresh
+   * from it. (Afresh, by key: the canvas adopts a re-read only when it differs from the last one it took in,
+   * which an undo back to how the canvas opened does not.)
+   */
+  const [restoredTimes, setRestoredTimes] = useState(0);
+  useEffect(() => onRestored(() => void read().then(() => setRestoredTimes((n) => n + 1))), [read]);
 
   if (failure) return <div className="canvas-waiting">{failure}</div>;
   if (!state) return <div className="canvas-waiting">Opening…</div>;
   return (
     <>
-      <CanvasView collection={state.collection} members={state.members} types={[]} onChanged={() => void read()} />
+      <CanvasView key={restoredTimes} collection={state.collection} members={state.members} types={[]} onChanged={() => void read()} />
       <CanvasTools title={store.titleOf(path)} onPlaced={() => read()} onFiles={onFiles} />
     </>
   );
@@ -84,6 +91,21 @@ function App() {
     kind: a.kind,
     done: (v) => { setPicking(null); a.done(v); },
   })), []);
+
+  // Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y: the canvas's undo and redo (api.ts) — not inside a note being written in,
+  // whose editor has its own.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("input, textarea, [contenteditable=true], .cm-editor")) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); redo(); }
+    };
+    addEventListener("keydown", key);
+    return () => removeEventListener("keydown", key);
+  }, []);
 
   // Ctrl+Shift+R: the screen's orientation, one step along (as in Writerdeck).
   useEffect(() => {

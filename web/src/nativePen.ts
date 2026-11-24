@@ -39,7 +39,9 @@ type Bridge = {
 const bridge = (window as unknown as { SC?: Bridge }).SC;
 
 /** Where pen writing isn't wanted: the app's own controls. */
-const CONTROLS = ".tools, .cv-toolbar, .tool-menu, .cv-zoom, .cv-minimap, .cv-minimap-open, .sc-title, .menu, .ctx-menu, .files-backdrop";
+const CONTROLS = ".tools, .cv-toolbar, .tool-menu, .cv-zoom, .cv-minimap, .cv-minimap-open, .sc-title, .menu, .ctx-menu, .files-backdrop, .cv-chosen-actions, .cv-entity-panel, .cv-find, .sc-notice";
+/** Over the whole screen while open (a dialog, the canvases, a picker): the pen writes nowhere at all. */
+const COVERS = ".modal-backdrop, .files-backdrop";
 
 const rattaAsked = (() => {
   try { return localStorage.getItem("supercanvas.rattaPen") !== "off"; } catch { return true; }
@@ -97,6 +99,7 @@ function pwSync(want: boolean): boolean {
 
 /* Its messages (its client in Supernote's notes app, HandWriteClient). */
 const AREAS = 1, PEN = 2, SYNC = 6;
+const RATTA_WIDTH = 0.58;
 const EVERYWHERE = [1, 0, 0, 18888, 18888, 0], NOWHERE = [1, 0, 0, 19999, 19999, 0];
 const snTell = (code: number, ints: number[]) => (bridge?.snCall?.(code, JSON.stringify(ints)) ?? "").startsWith("ok");
 
@@ -112,7 +115,9 @@ function rattaSync(want: boolean): boolean {
   const s = inkState();
   let key = "off", pen: number[] = [], keepOff: number[] = [];
   if (want) {
-    pen = [10, Math.round(INK_SIZES.pen[s.size]! * zoom() * (devicePixelRatio || 1) * 100), shade(s.color)];
+    // At the width the page will draw the kept stroke (InkLayer's radius: 0.35 + 0.65 × pressure of it, about
+    // 0.7 at the Nomad pen's usual pressure, 0.55), so the line doesn't thin a little as the swap happens.
+    pen = [10, Math.round(INK_SIZES.pen[s.size]! * RATTA_WIDTH * zoom() * (devicePixelRatio || 1) * 100), shade(s.color)];
     const rects = controls();
     keepOff = [rects.length, ...rects.flatMap(([l, t, r, b]) => [l, t, r - l, b - t, 0])];
     key = `on ${JSON.stringify([pen, keepOff])}`;
@@ -133,7 +138,7 @@ function rattaSync(want: boolean): boolean {
 
 function sync() {
   const s = inkState();
-  const want = s.on && s.tool === "pen" && document.visibilityState === "visible";
+  const want = s.on && s.tool === "pen" && document.visibilityState === "visible" && !document.querySelector(COVERS);
   if (way === null) {
     if (rattaAsked && bridge?.snCall) {
       // Supernote's pen, or nothing yet: asked again next time rather than falling back to the generic
@@ -160,36 +165,13 @@ export function resyncPen() {
 }
 
 /**
- * The kept strokes are drawn: the device's own copy of the line let go — the pen-writing layer wiped, a couple
- * of frames on so the page's are on the screen first; for Supernote's pen, the patch written in refreshed clean.
+ * The page's strokes are on the screen: the device's own copy of them let go — the pen-writing layer wiped,
+ * or Supernote's drawing buffer cleared (its message 6 with a second value that isn't 0, as at its own
+ * pen-down). InkLayer calls this once writing pauses, not after every stroke.
  */
-let wiping = 0;
-let dirty: { left: number; top: number; right: number; bottom: number } | null = null;
-export function wipeDevicePen(box?: { left: number; top: number; right: number; bottom: number }) {
-  if (way === "pw") {
-    cancelAnimationFrame(wiping);
-    wiping = requestAnimationFrame(() => requestAnimationFrame(() => bridge?.pwClear?.()));
-    return;
-  }
-  if (way !== "ratta") return;
-  if (box) {
-    dirty = dirty
-      ? { left: Math.min(dirty.left, box.left), top: Math.min(dirty.top, box.top),
-          right: Math.max(dirty.right, box.right), bottom: Math.max(dirty.bottom, box.bottom) }
-      // Copied field by field: a DOMRect's sides are getters, so spreading one copies nothing.
-      : { left: box.left, top: box.top, right: box.right, bottom: box.bottom };
-  }
-  if (!dirty) return; // a redraw with no stroke just written
-  /*
-   * Once the page has drawn the strokes: the service's drawing buffer let go of them (its message 6 with a
-   * second value that isn't 0, as at its own pen-down). The gray boxes once seen round each stroke were not
-   * this — they came from the generic pen layer having been set up in the same run (see the top).
-   */
-  clearTimeout(wiping);
-  wiping = window.setTimeout(() => {
-    dirty = null;
-    snTell(SYNC, [255, 1]);
-  }, 300);
+export function wipeDevicePen() {
+  if (way === "pw") bridge?.pwClear?.();
+  else if (way === "ratta") snTell(SYNC, [255, 1]);
 }
 
 onInk(resyncPen);
@@ -197,5 +179,8 @@ addEventListener("resize", resyncPen);
 addEventListener("pointerup", (e) => { if (e.pointerType !== "pen") resyncPen(); }, true);
 addEventListener("touchend", resyncPen, true);
 addEventListener("wheel", resyncPen, { passive: true });
+// Something shown or taken away — a dialog, the chosen things' buttons, a menu — most often after a tap with the
+// pen itself, which the pointerup above leaves out: told again, before the pen comes down on it.
+new MutationObserver(resyncPen).observe(document.body, { childList: true, subtree: true });
 // Away and back: told again (MainActivity turns Supernote's pen off as the app goes to the background).
 addEventListener("visibilitychange", () => { sent = ""; sync(); });

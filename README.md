@@ -19,10 +19,11 @@ strip's ✕, to put it away.
 | **Canvases** | Open, create, rename and delete canvases; folders; **Export PNG / PDF** of the whole canvas; screen **Orientation**; **About**. Also opened by tapping the canvas's name. |
 | **Shapes** | Drag onto the canvas to drop a note: text, post-it, rounded, rectangle, ellipse, triangle. Tap to choose the shape. Double-tap a note to type (Markdown with live preview). |
 | **Mind map** | Drops a mind-map root. Long-press a node for *Add a child / parent / sibling*. |
-| **Select** | Draw a lasso around notes and ink to select them, then drag inside the selection to move it, or tap **Delete**. |
-| **Pen** | Pen, highlighter and eraser; colors; three widths; undo/redo; optional finger drawing; clear ink. |
+| **Select** | Choose **Lasso** or **Box**, then draw around notes and ink to select them. Drag inside the selection to move it; tap the trash can to delete (asks first) or the region icon to group notes into a region. |
+| **Pen** | Pen, highlighter and eraser; colors; five widths; optional finger drawing. |
 | **Picture** | Adds a picture from the device (stored inside the canvas file). |
-| **Lock · Background · Zoom · Clear** | Lock the canvas to navigation only, switch dots / lines / blank, zoom, clear everything. |
+| **Undo · Redo** | Undo or redo any change on the canvas: ink, notes, moves, deletions. |
+| **Background · Zoom · Clear** | Switch dots / lines / blank, zoom, clear everything. |
 
 Also on the canvas:
 
@@ -36,11 +37,11 @@ Also on the canvas:
 ## Install
 
 1. On the Nomad, turn on sideloading: **Settings → Security & Privacy → Sideloading** (wording may vary by firmware).
-2. Download `supercanvas-1.0-beta.2.apk` from the [Releases](../../releases) page, copy it to the Nomad
+2. Download `supercanvas-1.0-beta.3.apk` from the [Releases](../../releases) page, copy it to the Nomad
    (USB, or download it there in the browser) and open it to install.
 3. Open **Supercanvas**, choose (or make) a folder for your canvases, and allow access to storage when asked.
 
-Or, with USB debugging on: `adb install -r supercanvas-1.0-beta.2.apk`.
+Or, with USB debugging on: `adb install -r supercanvas-1.0-beta.3.apk`.
 
 ## Notes
 

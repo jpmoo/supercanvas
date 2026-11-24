@@ -18,10 +18,10 @@
  * having to know anything else about the surface it sits on.
  */
 import { useEffect, useRef, useState } from "react";
-import { Eraser, FolderOpen, Hand, Highlighter, Image as ImageIcon, Network, PenLine, PenOff, Redo2, SquareDashed, Trash2, Type, Undo2, X } from "lucide-react";
-import { canRedo, canUndo, chooseColor, chooseSize, chooseTool, clearInk, inkState, INK_COLORS, INK_SIZES, onInk, redo, resolveColor, setFingerDraws, setInk, undo } from "../ink.ts";
+import { Eraser, FolderOpen, Highlighter, Image as ImageIcon, Lasso, Network, PenLine, Pointer, Redo2, SquareDashed, Type, Undo2, X } from "lucide-react";
+import { chooseColor, chooseSize, chooseTool, inkState, INK_COLORS, INK_SIZES, onInk, resolveColor, setFingerDraws, setInk } from "../ink.ts";
 import { CustomColor } from "./CustomColor.tsx";
-import { document_, keepResized } from "../api.ts";
+import { canRedo as canRedoAll, canUndo as canUndoAll, document_, keepResized, onHistory, redo as redoAll, undo as undoAll } from "../api.ts";
 import { choosePicture } from "../store.ts";
 import { putDocument, type CanvasItem } from "../document.ts";
 import { newMap } from "../mindmap.ts";
@@ -120,16 +120,26 @@ export function CanvasTools({ title, onPlaced, onFiles }: { title: string; onPla
    * without either owning the other.
    */
   const [selecting, setSelecting] = useState(false);
+  // Drawn round what is to be chosen (a lasso) or swept as a box: kept for next time.
+  const [selectBy, setSelectBy] = useState<"lasso" | "box">(() => {
+    try { return localStorage.getItem("supercanvas.selectBy") === "box" ? "box" : "lasso"; } catch { return "lasso"; }
+  });
+  const chooseSelectBy = (by: "lasso" | "box") => {
+    setSelectBy(by);
+    try { localStorage.setItem("supercanvas.selectBy", by); } catch { /* private */ }
+  };
   // Ink (ink.ts): its tool, color and size, drawn again as they change.
   const [, inkChanged] = useState(0);
   useEffect(() => onInk(() => inkChanged((n) => n + 1)), []);
+  // Undo and redo light up as there comes to be something to undo or redo.
+  useEffect(() => onHistory(() => inkChanged((n) => n + 1)), []);
   const ink = inkState();
   // The ink bar put out of the way, the pen still drawing: the pen's button brings it back.
   const [inkBarTucked, setInkBarTucked] = useState(false);
   useEffect(() => {
-    if (selecting) window.document.documentElement.dataset.select = "on";
+    if (selecting) window.document.documentElement.dataset.select = selectBy;
     else delete window.document.documentElement.dataset.select;
-  }, [selecting]);
+  }, [selecting, selectBy]);
   useEffect(() => {
     const off = (e: KeyboardEvent) => {
       if (e.key === "Escape") setSelecting(false);
@@ -263,7 +273,7 @@ export function CanvasTools({ title, onPlaced, onFiles }: { title: string; onPla
           `Drag onto the canvas — ${SHAPES.find((s) => s.key === shape)?.name}`,
           <ShapeMark shape={shape} />,
           // Its strip across the top, or away again; the pen's goes away while it's out.
-          () => setShapesOpen((o) => { if (!o) setInkBarTucked(true); return !o; }),
+          () => setShapesOpen((o) => { if (!o) { setInkBarTucked(true); setSelecting(false); } return !o; }),
         )}
       </div>
       {shapesOpen && (
@@ -292,11 +302,25 @@ export function CanvasTools({ title, onPlaced, onFiles }: { title: string; onPla
       })}
       <button
         className={`tool${selecting ? " armed" : ""}`}
-        title={selecting ? "Selecting — drag to sweep, Escape to stop" : "Select: drag to sweep without holding Shift"}
-        onClick={() => { setInk(false); setSelecting((on) => !on); }}
+        title={selecting ? "Selecting — tap to stop" : "Select: draw a lasso or a box round things"}
+        onClick={() => { setInk(false); setShapesOpen(false); setSelecting((on) => !on); }}
       >
         <SquareDashed size={15} />
       </button>
+      {selecting && (
+        // How to select, as a strip down the side like the pen's: a lasso or a box.
+        <div className="tool-menu tool-strip select-bar" role="toolbar" aria-label="Select">
+          <div className="ink-row">
+            <button className={`ink-pick${selectBy === "lasso" ? " on" : ""}`} title="Lasso: draw a loop round things"
+              aria-label="Lasso" onClick={() => chooseSelectBy("lasso")}><Lasso size={15} /></button>
+            <button className={`ink-pick${selectBy === "box" ? " on" : ""}`} title="Box: drag a box over things"
+              aria-label="Box" onClick={() => chooseSelectBy("box")}><SquareDashed size={15} /></button>
+          </div>
+          <span className="strip-gap" />
+          <button className="ink-pick strip-close" title="Stop selecting" aria-label="Close"
+            onClick={() => setSelecting(false)}><X size={15} /></button>
+        </div>
+      )}
 
       {/* Ink (ink.ts): the pen, the highlighter and the eraser, with a color and a width. The pen and the mouse
           draw; a finger still pans and zooms. */}
@@ -337,25 +361,21 @@ export function CanvasTools({ title, onPlaced, onFiles }: { title: string; onPla
             <CustomColor value={INK_COLORS.includes(ink.color) ? null : ink.color} onPick={(c) => chooseColor(c)} title="Another color…" />
           </div>
           <div className="ink-row">
-            {[0, 1, 2].map((i) => {
+            {[0, 1, 2, 3, 4].map((i) => {
               const w = INK_SIZES[ink.tool === "highlighter" ? "highlighter" : "pen"][i]!;
               return (
-                <button key={i} className={`ink-pick${ink.size === i ? " on" : ""}`} title={["Fine", "Medium", "Broad"][i]}
+                <button key={i} className={`ink-pick${ink.size === i ? " on" : ""}`} title={["Fine", "Medium", "Broad", "Thick", "Heavy"][i]}
                   onClick={() => chooseSize(i)}>
-                  <span className="ink-dot" style={{ width: Math.min(16, 3 + w / 2), height: Math.min(16, 3 + w / 2),
+                  <span className="ink-dot" style={{ width: Math.min(20, 3 + w / 2), height: Math.min(20, 3 + w / 2),
                     background: resolveColor(ink.color), opacity: ink.tool === "highlighter" ? 0.5 : 1 }} />
                 </button>
               );
             })}
           </div>
           <div className="ink-row">
-            <button className="ink-pick" title="Undo (Ctrl+Z)" disabled={!canUndo()} onClick={() => undo()}><Undo2 size={15} /></button>
-            <button className="ink-pick" title="Redo (Ctrl+Shift+Z)" disabled={!canRedo()} onClick={() => redo()}><Redo2 size={15} /></button>
             <button className={`ink-pick${ink.finger ? " on" : ""}`}
               title={ink.finger ? "A finger draws (two fingers pan and zoom) — tap to pan with a finger instead" : "A finger pans — tap to draw with a finger too"}
-              aria-pressed={ink.finger} onClick={() => setFingerDraws(!ink.finger)}><Hand size={15} /></button>
-            <button className="ink-pick" title="Clear all ink (undo brings it back)" onClick={() => clearInk()}><Trash2 size={15} /></button>
-            <button className="ink-pick" title="Stop drawing (Escape)" onClick={() => setInk(false)}><PenOff size={15} /></button>
+              aria-pressed={ink.finger} onClick={() => setFingerDraws(!ink.finger)}><Pointer size={15} /></button>
           </div>
           <span className="strip-gap" />
           <button className="ink-pick strip-close" title="Close (the pen stays in hand)" aria-label="Close"
@@ -366,6 +386,10 @@ export function CanvasTools({ title, onPlaced, onFiles }: { title: string; onPla
       {tool("image", "A picture from the device", <ImageIcon size={15} />, () => void addPicture())}
       {/* The view's own controls (lock, background, zoom, clear) follow, after a divider: CanvasView puts its
           bar here (a portal into #sc-viewbar), so the top right is one toolbar. */}
+      {/* Undo and redo: the whole canvas's (api.ts), whatever the change — ink, notes, links, moves. */}
+      <span className="cv-tb-sep tools-sep" />
+      <button className="tool" title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!canUndoAll()} onClick={() => undoAll()}><Undo2 size={15} /></button>
+      <button className="tool" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled={!canRedoAll()} onClick={() => redoAll()}><Redo2 size={15} /></button>
       <span className="cv-tb-sep tools-sep" />
       <div id="sc-viewbar" className="sc-viewbar" />
     </div>

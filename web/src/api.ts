@@ -268,6 +268,84 @@ let onWritten: (() => void) | null = null;
 export function hold(doc: CanvasDocument, written: () => void) {
   held = doc;
   onWritten = written;
+  // A canvas opened afresh starts its own history; a re-read of the same one keeps it.
+  if (historyOf !== where.canvas) {
+    historyOf = where.canvas;
+    undos.length = 0;
+    redos.length = 0;
+    lastChange = 0;
+  }
+  current = snapshot(held);
+}
+
+/* ------------------------------------------------------------- undo and redo
+ * The whole canvas's history: notes, shapes, links, regions, pictures and ink alike. Every change comes
+ * through `save`, which keeps the state from before it; changes close together (a word typed, a stroke and
+ * the next) are one step. Undo and redo put a kept state back, write it, and tell the page to read it again
+ * (onRestored), which the canvas adopts as it adopts any change from outside.
+ */
+type Snapshot = CanvasDocument;
+const undos: Snapshot[] = [];
+const redos: Snapshot[] = [];
+const STEP_GAP_MS = 800, MAX_STEPS = 100;
+let historyOf = "";
+let current: Snapshot = { items: [], links: [], regions: [] };
+let lastChange = 0;
+let restoring = false;
+let restored: (() => void) | null = null;
+const historyListeners = new Set<() => void>();
+
+/** A copy of the document that later changes won't reach (pictures shared: they are only ever added to). */
+function snapshot(doc: CanvasDocument): Snapshot {
+  return {
+    ...doc,
+    items: doc.items.map((i) => ({ ...i })),
+    links: doc.links.map((l) => ({ ...l })),
+    regions: doc.regions.map((r) => ({ ...r, members: [...(r.members ?? [])] })),
+  };
+}
+function remember() {
+  if (restoring) return;
+  const now = Date.now();
+  if (now - lastChange > STEP_GAP_MS) {
+    undos.push(current);
+    if (undos.length > MAX_STEPS) undos.shift();
+  }
+  redos.length = 0;
+  lastChange = now;
+  current = snapshot(held);
+  for (const f of historyListeners) f();
+}
+/** The page is told when an undo or redo has put a different document in place, to read it again. */
+export const onRestored = (f: () => void) => { restored = f; };
+/** Told whenever there is more, or less, to undo or redo. */
+export function onHistory(f: () => void): () => void {
+  historyListeners.add(f);
+  return () => historyListeners.delete(f);
+}
+export const canUndo = () => undos.length > 0;
+export const canRedo = () => redos.length > 0;
+function restore(to: Snapshot) {
+  restoring = true;
+  held = snapshot(to);
+  current = snapshot(to);
+  lastChange = 0;
+  save();
+  restoring = false;
+  void flush().then(() => restored?.());
+  for (const f of historyListeners) f();
+}
+export function undo() {
+  const to = undos.pop();
+  if (!to) return;
+  redos.push(snapshot(held));
+  restore(to);
+}
+export function redo() {
+  const to = redos.pop();
+  if (!to) return;
+  undos.push(snapshot(held));
+  restore(to);
 }
 export const document_ = () => held;
 
@@ -313,6 +391,7 @@ let saveFailed: ((why: string) => void) | null = null;
 export const onSaveFailed = (f: (why: string) => void) => { saveFailed = f; };
 
 function save() {
+  remember();
   if (pending !== null) clearTimeout(pending);
   pending = window.setTimeout(() => {
     pending = null;

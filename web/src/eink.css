@@ -167,3 +167,6 @@ the files panel) is drawn in black on white with big targets.
 /* The canvas is the whole window: no frame or rounded corners, the paper running to every edge. */
 .cv-wrap { border: none !important; border-radius: 0 !important; height: 100vh !important; min-height: 0 !important; }
 /* (The height in the stylesheet, not the canvas's own measured one: it follows the screen as it turns.) */
+/* The map's ✕: a target a pen can find. */
+.cv-wrap .cv-minimap .cv-minimap-close { width: 30px; height: 30px; top: -12px; left: -12px; }
+.cv-wrap .cv-minimap-open { width: 40px; height: 40px; }

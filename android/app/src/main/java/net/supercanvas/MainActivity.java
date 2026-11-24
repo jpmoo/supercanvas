@@ -501,6 +501,14 @@ public class MainActivity extends Activity {
     /* ------------------------------------------------------------------ bridge */
 
     private class Bridge {
+        /** The pen's finished strokes not yet taken, oldest first, each [[x, y, pressure], …] in the page's pixels (trackPen). */
+        @JavascriptInterface public String penStrokes() {
+            synchronized (penPoints) {
+                StringBuilder out = new StringBuilder("[");
+                while (!penDone.isEmpty()) out.append(out.length() > 1 ? "," : "").append(penDone.removeFirst());
+                return out.append(']').toString();
+            }
+        }
         @JavascriptInterface public boolean hasFolder() { return tree != null || dir != null; }
 
         @JavascriptInterface public String folderName() { String n = folderLabel(); return n == null ? "" : n; }
@@ -949,7 +957,58 @@ public class MainActivity extends Activity {
 
     @Override public boolean dispatchTouchEvent(MotionEvent ev) {
         watchPenEnd(ev);
+        trackPen(ev);
         return super.dispatchTouchEvent(ev);
+    }
+
+    /*
+     * The pen's stroke, every sample of it. Android hands over the pen's samples in batches (getHistoricalX), but
+     * the page hears about one point a frame while Supernote's pen draws the line, so its copy of a stroke came
+     * out with corners or smoothed off where Supernote's had neither. Kept here as it is written — in the page's
+     * pixels, relative to the WebView — and taken by the page as the pen lifts (penStrokes), to keep exactly that.
+     */
+    private final StringBuilder penPoints = new StringBuilder();
+    private int penCount = 0;
+    /*
+     * Strokes finished, waiting for the page: it asks as it hears the pen lift, which may be after the next stroke
+     * has begun here — so each is queued as it ends, never read half-written (that gave a letter the start of the
+     * next one in its place, 2026-11-24). The page matches them to its own by where they begin.
+     */
+    private final java.util.ArrayDeque<String> penDone = new java.util.ArrayDeque<>();
+
+    private void trackPen(MotionEvent ev) {
+        if (ev.getPointerCount() < 1) return;
+        // The pen (adb's "input stylus" says so by its source alone, not its tool).
+        if (ev.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS && !ev.isFromSource(android.view.InputDevice.SOURCE_STYLUS)) return;
+        if (ev.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER) return;
+        int action = ev.getActionMasked();
+        if (action != MotionEvent.ACTION_DOWN && action != MotionEvent.ACTION_MOVE && action != MotionEvent.ACTION_UP
+            && action != MotionEvent.ACTION_CANCEL) return;
+        int[] at = new int[2];
+        web.getLocationOnScreen(at);
+        float density = getResources().getDisplayMetrics().density;
+        // Raw minus the WebView's own place: the event's own x is relative to the window, which is the same here.
+        float ox = ev.getRawX() - ev.getX() - at[0], oy = ev.getRawY() - ev.getY() - at[1];
+        synchronized (penPoints) {
+            if (action == MotionEvent.ACTION_DOWN) { penPoints.setLength(0); penCount = 0; }
+            if (action == MotionEvent.ACTION_CANCEL) { penPoints.setLength(0); penCount = 0; return; }
+            for (int h = 0; h < ev.getHistorySize(); h++)
+                addPenPoint((ev.getHistoricalX(0, h) + ox) / density, (ev.getHistoricalY(0, h) + oy) / density, ev.getHistoricalPressure(0, h));
+            addPenPoint((ev.getX(0) + ox) / density, (ev.getY(0) + oy) / density, ev.getPressure(0));
+            if (action == MotionEvent.ACTION_UP) {
+                penDone.addLast("[" + penPoints + "]");
+                while (penDone.size() > 16) penDone.removeFirst();
+                penPoints.setLength(0);
+                penCount = 0;
+            }
+        }
+    }
+
+    private void addPenPoint(float x, float y, float pressure) {
+        if (penCount > 20000) return;
+        penPoints.append(penCount++ == 0 ? "" : ",").append('[')
+            .append(Math.round(x * 100) / 100f).append(',').append(Math.round(y * 100) / 100f).append(',')
+            .append(Math.round(Math.max(0, Math.min(1, pressure)) * 1000) / 1000f).append(']');
     }
 
     private void watchPenEnd(MotionEvent ev) {

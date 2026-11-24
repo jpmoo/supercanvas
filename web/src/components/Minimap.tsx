@@ -18,6 +18,15 @@ type View = { x: number; y: number; z: number };
 // Supercanvas: closed until opened (the map button, bottom right), and remembered after. A key of its own, so a
 // map left open by an earlier build starts closed too.
 const KEPT = "supercanvas.minimap";
+
+/** A button's action on the press lifting (pen, finger or mouse), or Enter / Space. */
+function press(act: () => void) {
+  return {
+    onPointerDown: (e: React.PointerEvent) => e.stopPropagation(),
+    onPointerUp: (e: React.PointerEvent) => { e.stopPropagation(); e.preventDefault(); act(); },
+    onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); } },
+  };
+}
 /** The map's size on screen, at most. */
 const MAP_W = 200, MAP_H = 140;
 
@@ -41,7 +50,9 @@ export function Minimap({ boxes, regions, view, setView, wrap }: {
 
   if (!open) {
     return (
-      <button className="cv-minimap-open" title="Show the map" onClick={() => setOpen(true)}>
+      // Acts as the pen (or finger) lifts, not on the "click" after it: on the Nomad a pen tap here didn't
+      // always come through as one. Enter or Space for a keyboard.
+      <button className="cv-minimap-open" title="Show the map" {...press(() => setOpen(true))}>
         <MapIcon size={15} />
       </button>
     );
@@ -94,7 +105,7 @@ export function Minimap({ boxes, regions, view, setView, wrap }: {
         ))}
         <rect x={seen.x} y={seen.y} width={seen.w} height={seen.h} className="cv-minimap-view" style={{ strokeWidth: thin * 1.5 }} />
       </svg>
-      <button className="cv-minimap-close" title="Hide the map" onClick={() => setOpen(false)}><X size={12} /></button>
+      <button className="cv-minimap-close" title="Hide the map" {...press(() => setOpen(false))}><X size={14} /></button>
     </div>
   );
 }

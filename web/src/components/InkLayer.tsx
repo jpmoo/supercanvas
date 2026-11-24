@@ -133,14 +133,23 @@ export function InkLayer({ span, chosen = [] }: { span: number; chosen?: string[
       if (k) pendingSwap.add(k.id);
       scheduleSwap();
     };
-    // Interrupted: a finger (not a palm while the pen is near), a mouse, the pen on a control, another tool,
-    // a wheel, or the app put away.
+    /*
+     * Let go when the device's copy would be wrong or in the way: the view moved (pan, pinch, zoom, wheel — seen
+     * as the layer's transform changing), a control pressed (by pen or finger), another tool, the app put away.
+     * Not merely a hand on the screen: a palm set down between words, the pen away a moment, cleared it, and the
+     * panel showed nothing in its place until something redrew (2026-11-24).
+     */
     const CONTROL = "button, input, textarea, .tools, .tool-menu, .cv-toolbar, .cv-minimap, .cv-minimap-open, .menu, .ctx-menu, .files-backdrop";
     const interrupt = (e: PointerEvent) => {
-      if (e.pointerType === "pen" && !(e.target as HTMLElement).closest?.(CONTROL)) return;
-      if (e.pointerType === "touch" && near()) return;
-      letGo();
+      if ((e.target as HTMLElement).closest?.(CONTROL)) letGo();
     };
+    const layer = wrap.querySelector(".cv-layer");
+    let transformWas = layer ? (layer as HTMLElement).style.transform : "";
+    const viewMoved = new MutationObserver(() => {
+      const now = layer ? (layer as HTMLElement).style.transform : "";
+      if (now !== transformWas) { transformWas = now; letGo(); }
+    });
+    if (layer) viewMoved.observe(layer, { attributes: true, attributeFilter: ["style"] });
     let toolWas = `${inkState().on} ${inkState().tool}`;
     const unTool = onInk(() => {
       const now = `${inkState().on} ${inkState().tool}`;
@@ -320,6 +329,7 @@ export function InkLayer({ span, chosen = [] }: { span: number; chosen?: string[
       letGo();
       unTool();
       window.removeEventListener("pointerdown", interrupt, true);
+      viewMoved.disconnect();
       window.removeEventListener("wheel", letGo, true);
       document.removeEventListener("visibilitychange", away);
       unLive();

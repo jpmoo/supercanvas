@@ -171,7 +171,13 @@ export function resyncPen() {
  */
 export function wipeDevicePen() {
   if (way === "pw") bridge?.pwClear?.();
-  else if (way === "ratta") snTell(SYNC, [255, 1]);
+  else if (way === "ratta") {
+    snTell(SYNC, [255, 1]);
+    // And the screen asked to show the page again where that ink was, as Supernote's notes ask once writing
+    // pauses: without it the panel kept showing nothing there, the page's own strokes included, until something
+    // else redrew (a zoom).
+    bridge?.einkScreenRefresh?.(false, 1);
+  }
 }
 
 onInk(resyncPen);

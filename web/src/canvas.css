@@ -1,0 +1,832 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 Jeff Moore */
+/* The canvas fills whatever it is put in, and paints nothing of its own behind
+ * itself — on the desk it sits on the frosted sheet. */
+html, body, #canvas-root { height: 100%; margin: 0; }
+/*
+ * The canvas's typeface, in one place.
+ *
+ * Hermes' brand is explicit — "Body/content: Verdana. Interface chrome: Tahoma"
+ * — and the Mac copies it (`Theme.swift`: "The web app sets Verdana for body
+ * and Tahoma for chrome"), so that is what parity means and that is the default
+ * here. The other honest answer is the shell's own face, `system-ui, "Noto
+ * Sans"`, which every other Talaria panel uses and which is the desktop's
+ * choice rather than the app's. Swapping is a one-line change to these two
+ * declarations; both are sans.
+ */
+body {
+  background: transparent;
+  color: var(--text, CanvasText);
+  font: 13px/1.5 var(--font-body, system-ui, sans-serif);
+}
+
+/*
+ * **And the controls inherit it**, which is the whole reason the canvas looked
+ * wrong.
+ *
+ * A button, an input, a select and a textarea do not inherit `font-family` from
+ * their page — the browser gives them its own, which is a serif. So the toolbar,
+ * the "Add a block" field, every menu item and every swatch label were rendered
+ * in Times while the prose beside them was not, which reads as two applications
+ * sharing a window. `panel.css` in the shell has had this rule all along; the
+ * fork of Hermes' stylesheet did not bring Hermes' copy of it, because its
+ * selector names no class and no `cv-` sweep could ever have found it.
+ */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+.canvas-waiting {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  color: color-mix(in srgb, CanvasText 55%, transparent);
+}
+
+/*
+ * A placed block, Talaria's way.
+ *
+ * Hermes fills this space with a live editor against its API. Here it is what
+ * the Mac draws — a title, a type icon and a completion box, every fact of it
+ * out of the local mirror — so it has to carry its own card: the node around it
+ * is a frame, and Hermes' card was the thing with a background.
+ */
+.tal-node {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.tal-head { display: flex; gap: 7px; align-items: baseline; min-width: 0; }
+.tal-head input[type="checkbox"] { margin: 0; flex: none; }
+.tal-title {
+  min-width: 0;
+  /* Three lines, then an ellipsis. A node is a fixed box on a canvas and a
+   * title that overflows it lands on top of whatever is underneath. */
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-weight: 500;
+}
+.tal-done .tal-title { text-decoration: line-through; opacity: .6; }
+.tal-missing {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-style: italic;
+  color: color-mix(in srgb, CanvasText 45%, transparent);
+}
+
+/* The note editor placeholder — see `LongTextField.tsx`. */
+.longtext { height: 100%; }
+/* Three classes deep on purpose. `.cv-node.cv-shaded textarea` in the forked
+ * stylesheet paints every field on a colored node with a translucent white
+ * wash — right for a card holding a form, wrong for words on paper, where it
+ * read as a panel laid over the sticky. Two classes lost to it; the paper in
+ * the middle wins. */
+.cv-node .cv-paper .longtext-area {
+  width: 100%; height: 100%; box-sizing: border-box;
+  border: 0; background: transparent; resize: none; color: inherit;
+  /* The canvas's own body font, not a code font. The brand is explicit —
+   * "Body/content: Verdana" — and the Mac writes a note in the body face; a
+   * monospace note is a different object at a glance. */
+  font: inherit;
+}
+.cv-node .cv-paper .longtext-area:focus { outline: none; }
+
+/*
+ * Where the words sit in a node.
+ *
+ * The alignment is set inline on `.cv-body` (see `alignment` in the fork), and
+ * these are what let it take: a body that stretches cannot be positioned down
+ * the box, and an editor pinned to full height cannot either. Both size to their
+ * text instead, which is also how the Mac lays a node out — the words are placed
+ * in the box rather than filling it.
+ */
+.cv-body { display: flex; flex-direction: column; }
+.cv-body > .longtext { height: auto; }
+.cv-node .cv-paper .longtext-area { height: auto; min-height: 1.4em; overflow: hidden; text-align: inherit; }
+/* A block's card follows the same rule — its title sits where the node says. */
+.tal-node { height: auto; }
+
+/*
+ * What a drop would connect to.
+ *
+ * The Mac's, in CSS: a filled accent wash and a two-pixel accent border, and it
+ * is the only filled mark on the canvas on purpose. `outline` rather than
+ * `border`, so it sits outside the box and cannot move the words inside it or
+ * fight a border somebody set from the menu.
+ */
+.cv-node.cv-drop {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.cv-node.cv-drop::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 3px;
+  pointer-events: none;
+  /* Above the paper, under the words — it is a mark on the node, not a veil
+   * over it. */
+  z-index: 1;
+}
+
+/*
+ * The dots, at the spacing that is actually snapped to.
+ *
+ * The forked stylesheet draws them every 26px because that was Hermes' step;
+ * the Mac's is 24 and the snapping here now matches it. A grid drawn at one
+ * spacing and snapped to another is worse than no grid at all — every node
+ * lands *near* a dot, which reads as the snapping being broken.
+ *
+ * The Mac draws its own at `24 * zoom` for the same reason this multiplies by
+ * `--cv-z`: the spacing carries the scale and the dot stays a pixel.
+ */
+.cv-wrap {
+  background:
+    radial-gradient(circle, var(--border) 1px, transparent 1px) var(--cv-x, 0px) var(--cv-y, 0px) /
+      calc(24px * var(--cv-z, 1)) calc(24px * var(--cv-z, 1)),
+    var(--cv-paper, var(--surface-2));
+}
+
+/* --- Frosting, and the two layers of it ------------------------------------
+ * The Mac makes the canvas a pane like the four quadrants — an edge, and the
+ * blur showing through it — "because without one it is the whole screen and
+ * there is nothing to say where the surface stops and the desktop showing
+ * through it begins." Same construction here: the desk's sheet is the outer
+ * layer, and the canvas lays its own thin veil over it, exactly as a quadrant
+ * does.
+ *
+ * Only when framed. On its own the canvas is a window with nothing behind it,
+ * and a see-through window over a desktop nobody blurred is just hard to read.
+ */
+.framed .cv-wrap {
+  background:
+    radial-gradient(circle, var(--border) 1px, transparent 1px) var(--cv-x, 0px) var(--cv-y, 0px) /
+      calc(24px * var(--cv-z, 1)) calc(24px * var(--cv-z, 1)),
+    var(--cv-paper, color-mix(in srgb, CanvasText 4%, transparent));
+}
+
+/* Frosting off: the surface is solid and the desktop is gone. The toggle is the
+ * Mac's, and so is the reason — the canvas is the work now. */
+.solid .cv-wrap,
+.solid body {
+  background-color: var(--surface-2);
+}
+.solid .cv-wrap {
+  background:
+    radial-gradient(circle, var(--border) 1px, transparent 1px) var(--cv-x, 0px) var(--cv-y, 0px) /
+      calc(24px * var(--cv-z, 1)) calc(24px * var(--cv-z, 1)),
+    var(--cv-paper, var(--surface-2));
+}
+.cv-frost-toggle.on { color: var(--accent); }
+
+/* --- The canvas's own chat -------------------------------------------------
+ * A drawer at the right edge, and a pencil when it is shut. It must not look
+ * like the Hermes assistant: both can be open at once, and the one thing two
+ * chats in one window must not be is identical.
+ */
+.chat-tab {
+  position: fixed; right: 14px; top: 14px; z-index: 30;
+  width: 30px; height: 30px; display: grid; place-items: center;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text);
+  cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.12);
+}
+.chat-tab:hover { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+
+.chat-drawer {
+  position: fixed; right: 0; top: 0; bottom: 0; z-index: 30;
+  width: min(360px, 40vw);
+  display: flex; flex-direction: column;
+  border-left: 1px solid var(--border);
+  /* A shade more solid than the canvas: it is a thing laid on top, and text
+   * over a blurred desktop over a blurred window is text nobody can read. */
+  background: color-mix(in srgb, Canvas 92%, transparent);
+  backdrop-filter: blur(6px);
+}
+.chat-drawer > header {
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 10px; border-bottom: 1px solid var(--border);
+  font: 600 11px/1 var(--font-chrome, system-ui); text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-secondary, var(--text));
+}
+.chat-drawer > header > button { margin-left: auto; }
+
+.chat-log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.chat-empty { display: flex; flex-direction: column; gap: 6px; }
+.chat-what { margin: 0; font: 600 11.5px/1.4 var(--font-chrome, system-ui); }
+.chat-example {
+  display: flex; gap: 6px; align-items: baseline; text-align: left;
+  background: none; border: 0; padding: 1px 0; cursor: pointer;
+  color: var(--text-secondary, inherit); font-size: 11.5px;
+}
+.chat-example .arrow { color: color-mix(in srgb, var(--accent) 70%, transparent); }
+.chat-example:hover { color: var(--text); }
+.chat-fine { margin: 6px 0 0; font-size: 11px; opacity: .75; }
+
+.chat-turn { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.chat-turn.mine { align-items: flex-end; }
+.chat-bubble {
+  max-width: 92%; padding: 6px 9px; border-radius: 9px; white-space: pre-wrap;
+  background: color-mix(in srgb, CanvasText 6%, transparent); font-size: 12.5px;
+}
+.chat-turn.mine .chat-bubble { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.chat-steps { display: flex; flex-wrap: wrap; gap: 4px; }
+.chat-chip {
+  font-size: 10.5px; padding: 1px 6px; border-radius: 99px;
+  border: 1px solid var(--border); color: var(--text-secondary, inherit);
+}
+.chat-chip.bad { border-color: var(--danger, #b3261e); color: var(--danger, #b3261e); }
+.chat-busy { font-size: 11.5px; opacity: .7; }
+.chat-trouble {
+  font-size: 11.5px; padding: 6px 8px; border-radius: 7px;
+  background: color-mix(in srgb, var(--danger, #b3261e) 12%, transparent);
+}
+
+.chat-composer { display: flex; gap: 6px; padding: 9px; border-top: 1px solid var(--border); }
+.chat-composer textarea {
+  flex: 1; resize: none; border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 8px; background: var(--surface); color: var(--text); font-size: 12.5px;
+}
+.chat-composer .go {
+  align-self: stretch; width: 32px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text); cursor: pointer;
+}
+.chat-composer .go:disabled { opacity: .45; cursor: default; }
+
+/* --- The tool strip --------------------------------------------------------
+ * Down the left edge, the way the Mac has it. Each tool is a thing you drag
+ * onto the surface; the strip itself never covers the canvas's own chrome.
+ */
+.tools {
+  position: fixed; left: 12px; top: 12px; z-index: 25;
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+}
+.tool-row { display: flex; align-items: center; gap: 3px; }
+.tools .tool, .tools .tool-shape {
+  display: grid; place-items: center;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text); cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .1);
+}
+.tools .tool { width: 32px; height: 32px; }
+/* Wide enough for what is in it. */
+.tools .tool-shape { width: 22px; height: 32px; color: var(--muted, inherit); }
+.tools .tool:hover, .tools .tool-shape:hover, .tools .tool-shape.open {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+/* While it is being dragged: the tool is somewhere else now. */
+.tools .tool.lifted { opacity: .45; }
+
+.tool-menu {
+  display: flex; flex-direction: column; min-width: 132px; padding: 4px;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface); box-shadow: 0 6px 18px rgba(0, 0, 0, .16);
+}
+.tool-menu.wide { min-width: 240px; }
+.tool-menu .menu-item.on { font-weight: 600; }
+.tool-menu .menu-item .fine { margin-left: auto; font-size: 10.5px; opacity: .6; }
+.tool-menu .menu-item { display: flex; gap: 8px; align-items: baseline; }
+.tool-find {
+  margin: 2px 4px 5px; padding: 5px 7px;
+  border: 1px solid var(--border); border-radius: 7px;
+  background: var(--surface-2); color: var(--text);
+}
+.tools .tool:disabled { opacity: .4; cursor: default; }
+.tools .tool:disabled:hover { background: var(--surface); }
+
+/* --- Which nodes wear the dashed mark, and which do not --------------------
+ *
+ * Reversed from Hermes, and the reason is what each canvas is *for*. There, a
+ * canvas is a view of a collection: the blocks belong on it and an ephemeral
+ * note is the odd one out, so the note is what gets marked. Here the canvas is
+ * a surface of its own — notes are simply what it is made of — and the node
+ * that deserves a second look is the one standing for something in the library,
+ * because that one is a reference to a thing living somewhere else.
+ *
+ * `:not(.cv-note)` is exactly the linked ones: a node comes either from the
+ * notes on this document or from a member standing for a block, and only the
+ * first wears `cv-note`.
+ *
+ * **This lives here rather than in `canvas-forked.css`**, which is generated
+ * from Hermes' stylesheet. The same rule was edited there once and vanished the
+ * next time the extraction ran.
+ */
+.cv-node.cv-note {
+  outline: none;
+}
+.cv-node:not(.cv-note) {
+  outline: 2px dashed color-mix(in srgb, var(--border-strong) 70%, transparent);
+  outline-offset: 3px;
+}
+/* Selected still says selected: the mark is about what a node *is*, and has no
+ * business arguing with what is happening to it. */
+.cv-node:not(.cv-note).cv-sel {
+  outline-color: var(--accent);
+}
+
+/*
+ * A linked node is a reference, not a document.
+ *
+ * Its words belong to a block in Hermes Notes and are edited there — this canvas
+ * only says where the thing sits and what it is next to. So nothing about it
+ * invites a caret: no text cursor, no drag-select, no editable field (there is
+ * none to begin with — the card is a title, an icon and a box).
+ *
+ * The one exception is the box, because completing something is not editing it:
+ * the type says whether it can be finished and the daemon carries the write. A
+ * checkbox that shows a state and cannot change it is a worse checkbox than
+ * none.
+ */
+.tal-node {
+  user-select: none;
+  cursor: default;
+}
+.tal-node input[type="checkbox"] {
+  cursor: pointer;
+}
+
+/* A picture to choose from, in the node menu. Its own thumbnail, because the
+ * only useful label for a photograph is the photograph. */
+.cv-swatch.cv-pic {
+  background-size: cover;
+  background-position: center;
+  border: 1px solid var(--border);
+}
+.cv-swatch.cv-pic.on {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- A shape does not clip its words --------------------------------------
+ *
+ * Hermes cuts the sheet to the shape, and the sheet is what the text sits on, so
+ * an ellipse trims its own label — "Quotes by Friday" arrives as "riday". The
+ * Mac never does this, on the rule it states plainly: "text has no background,
+ * and a shape is a line round the outside rather than permission to paint behind
+ * the words."
+ *
+ * **Solved by moving the words rather than by moving the cut.** The first
+ * attempt put the shape's fill on a layer behind the sheet and left the sheet
+ * uncut; it did not hold — the text still stopped at the curve — and an hour of
+ * measuring found no clip that explained it. This does: a shape whose edges cut
+ * the corners is given padding enough that the writing starts inside it. The
+ * words are never cut because they are never out there.
+ *
+ * The insets are the geometry, not taste. An ellipse at 30% of its height has
+ * about 14% of its width outside the curve on each side; a triangle is a wedge,
+ * so its text sits in the lower half where there is room for it.
+ */
+/*
+ * …and in the middle of it, which is where a shape's label goes.
+ *
+ * Padding alone was not enough: a line at the very top of an ellipse is at its
+ * narrowest point, so text pushed in from the sides still ran past the curve.
+ * Centred, it sits where the shape is widest. This is a *default* — the inline
+ * alignment a node carries wins, because somebody who has said "top left" has
+ * said it about this shape too.
+ */
+.cv-node[data-shape="ellipse"] .cv-body {
+  padding-left: 12%;
+  padding-right: 12%;
+  /* Down the box as well as across it. `justify-content` alone left the label
+   * at the top, where an ellipse is narrowest and where it had to be inset
+   * hardest to fit; in the middle it has the whole width of the shape. */
+  padding-top: 12%;
+  padding-bottom: 12%;
+  justify-content: center;
+  text-align: center;
+}
+.cv-node[data-shape="triangle"] .cv-body {
+  padding-left: 20%;
+  padding-right: 20%;
+  padding-top: 42%;
+  text-align: center;
+}
+/* And a post-it keeps its corner clear of the words. */
+.cv-node[data-shape="postIt"] .cv-body { padding-bottom: 16px; }
+
+/* --- The note editor's own styling ----------------------------------------
+ *
+ * Copied from the shell's `panel.css` rather than linked, because that sheet
+ * also dresses a body, a pane and a card — names Hermes' canvas is already
+ * using for other things. Sixty lines duplicated beats a collision, and the
+ * *behavior* is not duplicated at all: `LongTextField` imports the shell's own
+ * `notefield.js` at runtime, so a canvas note and today's note are one editor.
+ */
+.note-field { display: flex; flex-direction: column; gap: 2px; }
+
+.note-block {
+  padding: 2px 4px; border-radius: 6px; cursor: text;
+  /* The hover is what says a block is editable at all. Without it the page
+   * looks like a document rather than one you can click into. */
+  transition: background .12s;
+}
+
+.note-block:hover { background: color-mix(in srgb, CanvasText 5%, transparent); }
+
+.note-block > :first-child { margin-top: 0; }
+
+.note-block > :last-child { margin-bottom: 0; }
+
+.note-block p, .note-block ul, .note-block ol { margin: 3px 0; }
+
+.note-empty { color: var(--muted); font-style: italic; }
+
+/* The block being edited: its own markdown, in the same place the rendering
+ * was, so the line does not jump when you click it. */
+.note-source { position: relative; }
+
+.note-source textarea {
+  width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
+  border: 1px solid var(--accent); border-radius: 6px;
+  padding: 2px 4px; min-height: 1.6em;
+  font: 13px/1.55 ui-monospace, "Noto Sans Mono", monospace;
+  background: color-mix(in srgb, Canvas 88%, CanvasText); color: var(--fg);
+}
+
+.note-source textarea:focus { outline: none; }
+
+/* A task line. The box is real and it writes back to the markdown. */
+li.task { list-style: none; margin-left: -1.2em; display: flex; gap: 7px; align-items: baseline; }
+
+li.task input { margin: 0; flex: none; }
+
+li.task.is-done > span { text-decoration: line-through; color: var(--muted); }
+
+/* A mention, rendered. Not a link with a URL in it — the href is `block:<id>`,
+ * which is not something to show anybody. */
+.chip-link {
+  text-decoration: none; border-radius: 5px; padding: 0 5px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: inherit; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.chip-link.tag {
+  background: color-mix(in srgb, var(--olive, CanvasText) 20%, transparent);
+  border-color: color-mix(in srgb, CanvasText 18%, transparent);
+  cursor: default;
+}
+
+.chip-link.block:hover { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* The picker. Floats over the field, under the caret's line. */
+.mention-menu {
+  position: absolute; z-index: 20; min-width: 220px; max-width: 340px;
+  padding: 4px; border-radius: 8px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, Canvas 96%, CanvasText);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+}
+
+.mention-row {
+  display: flex; width: 100%; gap: 10px; align-items: baseline;
+  padding: 4px 8px; border: 0; border-radius: 6px; cursor: pointer;
+  background: none; color: inherit; font: inherit; text-align: left;
+}
+
+.mention-row.here { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+.mention-row > span:first-child {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.mention-note { font-size: 11px; color: var(--muted); flex: none; }
+
+/* On a canvas node it is smaller, and it fills the node rather than a panel. */
+.cv-node .note-field { gap: 0; font-size: 12.5px; }
+.cv-node .note-block { padding: 1px 3px; }
+.cv-node .note-source textarea { font-size: 12px; padding: 1px 3px; }
+.cv-node .longtext { height: 100%; overflow: auto; }
+.cv-node .mention-menu { max-width: 260px; }
+
+/* A tool that is on. The Mac's armed state: not a press, a mode. */
+.tools .tool.armed {
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* And the surface says so too, so it is obvious why a drag is sweeping rather
+ * than panning. */
+:root[data-select="on"] .cv-wrap { cursor: crosshair; }
+
+/* "drawing…", and a way to stop it. */
+.chat-busy { display: flex; align-items: center; gap: 8px; }
+.chat-stop {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); font-size: 11px;
+}
+.chat-stop:hover { border-color: var(--danger, #b3261e); color: var(--danger, #b3261e); }
+
+/* --- Being photographed ----------------------------------------------------
+ * Everything that is chrome rather than drawing goes, and the surface is opaque
+ * — a picture of a canvas should not be a picture of whatever was behind it.
+ */
+.exporting .cv-toolbar,
+.exporting .cv-add,
+.exporting .tools,
+.exporting .chat-tab,
+.exporting .chat-drawer,
+.exporting .cv-grab,
+.exporting .cv-corner,
+.exporting .cv-bend { display: none !important; }
+.exporting body, .exporting .cv-wrap { background-color: Canvas; }
+/* No scrollbars in a photograph. */
+.exporting, .exporting body, .exporting .cv-wrap { overflow: hidden !important; }
+/* The dashed mark on a linked node says "this lives elsewhere", which is a fact
+ * about the canvas and not about the drawing; it stays. */
+
+/* --- Click selects, double-click edits, drag moves -------------------------
+ *
+ * The Mac's rule (`CanvasSurface.swift`), and the reason this is CSS rather
+ * than event handling: the body of a node *is* a text field, so as long as it
+ * takes the pointer, a press is a caret and a drag is a text selection. That
+ * left a 16-pixel grip at the top as the only way to move a node — with the
+ * four connect dots on the edges either side of it — so dragging a node into a
+ * region was a coin toss between selecting its words and drawing a connection
+ * out of it.
+ *
+ * Inert until the node is the one being edited. Scoped to the writing: a linked
+ * node's status box is not text and stays clickable, which is the one
+ * interaction those are allowed.
+ */
+.cv-node .longtext,
+.cv-node .longtext-area {
+  pointer-events: none;
+}
+.cv-node[data-editing="1"] .longtext,
+.cv-node[data-editing="1"] .longtext-area {
+  pointer-events: auto;
+}
+/* And the paper says what a press will do, rather than offering an I-beam over
+ * something that will not take one. */
+.cv-node .cv-paper { cursor: grab; }
+.cv-node[data-editing="1"] .cv-paper { cursor: auto; }
+.cv-node[data-editing="1"] .longtext-area { cursor: text; }
+
+/*
+ * While something is actually being dragged, the whole surface holds it.
+ *
+ * `:active` on the node cannot do this: the pointer is captured, so it is no
+ * longer *over* the node it is carrying, and the cursor fell back to whatever
+ * it crossed — an arrow over bare canvas, which reads as the drag having been
+ * dropped. The surface is the one thing under the pointer for the whole
+ * gesture, so the class goes there. `!important` because the things being
+ * crossed set cursors of their own, and for this moment none of them are right.
+ */
+/* A finger on what can be dragged drags it. The board takes no touch scrolling (.cv-wrap), but the engine reads
+   touch-action only up to the nearest element that scrolls or clips — a card's body is one — so whatever sat on the
+   board was still the engine's to scroll by, and it took a card's drag back after a step. Everything on the board,
+   then, and the tools that are dropped onto it. */
+.cv-wrap *, .tools button { touch-action: none; }
+/* A long text inside a card still scrolls under a finger. */
+.cv-wrap .longtext, .cv-wrap .longtext * { touch-action: pan-y; }
+
+.cv-wrap.cv-holding,
+.cv-wrap.cv-holding * {
+  cursor: grabbing !important;
+}
+
+/* The region's "+", and the mode it turns on ---------------------------------
+ * Small, in the title band, and only while the region is selected — the Mac
+ * shows its chrome the same way and for the same reason: a box covered in
+ * buttons is a box you cannot see the contents of.
+ */
+.cv-region-add {
+  margin-left: 6px;
+  width: 14px; height: 14px; padding: 0;
+  border: 0; border-radius: 50%;
+  background: color-mix(in srgb, CanvasText 45%, transparent);
+  color: Canvas;
+  font: 700 10px/1 system-ui, sans-serif;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.cv-region-add:hover { background: color-mix(in srgb, CanvasText 65%, transparent); }
+/* On, and saying so: the mode stays until you press the canvas or Escape, and
+ * nothing else on screen would tell you it is still running. */
+.cv-region-add.on { background: var(--accent, CanvasText); }
+
+/* --- Resize corners you can see -------------------------------------------
+ *
+ * They were twelve invisible pixels. Hit-testing them worked — the cursor even
+ * changed to `nwse-resize` when you happened to be over one — but there was
+ * nothing on screen saying where "over one" was, so finding a corner meant
+ * sweeping the edge of a node until the pointer changed shape. On a photograph,
+ * where the picture runs to the node's edge and there is no paper margin to aim
+ * at, that is most of the way to not having handles at all.
+ *
+ * So: a slightly larger target, and a mark inside it that appears when the node
+ * is under the pointer or selected — the same way the connect dots used to
+ * announce themselves, which is the idiom this canvas already had.
+ */
+.cv-corner { width: 16px; height: 16px; }
+.cv-nw { top: -6px; left: -6px; }
+.cv-ne { top: -6px; right: -6px; }
+.cv-sw { bottom: -6px; left: -6px; }
+.cv-se { bottom: -6px; right: -6px; }
+
+.cv-corner::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 2px;
+  background: Canvas;
+  border: 1.5px solid color-mix(in srgb, CanvasText 55%, transparent);
+  opacity: 0;
+  transition: opacity .12s;
+  pointer-events: none;
+}
+.cv-node:hover .cv-corner::after,
+.cv-node.cv-sel .cv-corner::after { opacity: 1; }
+/* Not while something is being dragged: the marks would follow the node around
+ * suggesting a resize that is not what is happening. */
+.cv-wrap.cv-holding .cv-corner::after { opacity: 0; }
+
+/*
+ * Entities. A note standing for one wears its kind in the corner and, when its
+ * own words differ, the entity's title as a quiet last line. Both are marks,
+ * not controls: they take no clicks, so a note drags and edits as before.
+ */
+.cv-entity-mark {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  display: flex;
+  opacity: .55;
+  pointer-events: none;
+}
+.cv-entity-line {
+  flex: none;
+  padding: 0 10px 6px;
+  font-size: 11px;
+  opacity: .6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.cv-kind { display: inline-flex; align-items: center; flex: none; }
+
+/* The menu's second page: finding an entity, or listing what one connects to. */
+.cv-entity-panel {
+  width: 260px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+.cv-entity-hint { display: flex; align-items: center; gap: 6px; padding: 4px 10px; }
+.cv-entity-q {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.cv-entity-none { padding: 6px 10px; }
+.cv-entity-head,
+.cv-entity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  font-size: 13px;
+}
+.cv-entity-head { font-weight: 600; }
+.cv-entity-title-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-entity-place {
+  flex: none;
+  font-size: 11px;
+  font-weight: 400;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.cv-entity-place:hover { background: var(--surface-2); }
+
+/*
+ * Entity cards: a task, an event, a person or a note from the core, drawn
+ * live. Framed like a card rather than written like a note — a quiet surface
+ * with a hairline, which a color somebody picks (`cv-shaded`) still overrides.
+ * The face is words to read, not to edit, so it takes no text selection.
+ */
+.cv-node.cv-entitycard .cv-paper { border: 1px solid var(--border); border-radius: 10px; box-sizing: border-box; }
+.cv-node.cv-entitycard:not(.cv-shaded) .cv-paper { background: var(--surface) !important; }
+.cv-card { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; padding: 8px 10px; font-size: 12px; line-height: 1.35; }
+.cv-card-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cv-card-title { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.cv-card-meta { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cv-card-indent { padding-left: 24px; }
+.cv-card-excerpt { color: var(--muted); white-space: pre-wrap; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+/* The status circle — the one control on a card. */
+.cv-card-status { flex: none; width: 16px; height: 16px; padding: 0; border: 2px solid var(--muted); border-radius: 50%; background: transparent; cursor: pointer; }
+.cv-card-status:disabled { cursor: default; opacity: .6; }
+.cv-card-done .cv-card-title { color: var(--muted); text-decoration: line-through; font-weight: 400; }
+.cv-card-gone { opacity: .5; }
+.cv-card-gone .cv-card-meta { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+.cv-card-option { display: flex; align-items: center; gap: 8px; }
+.cv-card-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; }
+/* A person: initials on a tint left of the name. An event: its day as a small calendar leaf. */
+.cv-card-person > .cv-card-row, .cv-card-event > .cv-card-row { align-items: flex-start; gap: 9px; }
+.cv-card-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.cv-card-avatar { flex: none; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; letter-spacing: .5px; color: var(--text); }
+.cv-card-date { flex: none; width: 32px; display: flex; flex-direction: column; align-items: center; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--paper); line-height: 1.1; }
+.cv-card-month { align-self: stretch; text-align: center; font-size: 9px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; padding: 1px 0; color: var(--text); background: color-mix(in srgb, var(--accent) 45%, var(--surface)); }
+.cv-card-day { font-size: 15px; font-weight: 600; padding: 1px 0 2px; }
+
+/* A small heading in a menu: what the swatches under it color. */
+.cv-menu-hint { padding: 6px 10px 0; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); }
+/* The crossed swatch: no color of its own — the note's, or the theme's. */
+.cv-swatch.cv-swatch-plain {
+  background: linear-gradient(135deg, transparent 45%, var(--text-muted) 45%, var(--text-muted) 55%, transparent 55%), var(--surface);
+}
+.cv-text-colors { max-width: 210px; }
+/* The typed custom color (CustomColor.tsx): a short field beside the swatches. */
+.cv-hex {
+  width: 78px; height: 20px; padding: 0 6px; box-sizing: border-box;
+  font: inherit; font-size: 11px; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 4px; outline: none;
+}
+.cv-hex.bad { border-color: var(--danger, #c26b6b); }
+/* The in-page color picker (CustomColor.tsx): a square of saturation and value,
+   a strip of hue, the chosen color and its hex — on its own row of the menu. */
+.cv-picker { flex-basis: 100%; display: grid; grid-template-columns: 1fr 14px; grid-template-rows: 120px auto; gap: 8px; padding: 6px 2px 2px; }
+.cv-picker-sv { position: relative; border-radius: 6px; cursor: crosshair; touch-action: none;
+  background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(var(--hue, 0) 100% 50%)); }
+.cv-picker-hue { position: relative; border-radius: 6px; cursor: ns-resize; touch-action: none;
+  background: linear-gradient(to bottom, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.cv-picker .knob { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.4); pointer-events: none; }
+.cv-picker-hue .knob { left: 50%; }
+.cv-picker-foot { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+.cv-picker-chip { width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--border); flex: none; }
+
+/* Find on the canvas: over it, top right, staying put as the canvas moves under it. */
+.cv-find { position: absolute; top: 10px; right: 12px; z-index: 50; display: flex; align-items: center; gap: 6px; padding: 5px 7px;
+  background: var(--surface); border: 1px solid var(--frame); border-radius: var(--radius-control); box-shadow: var(--menu-shadow); }
+.cv-find input { width: 200px; font: inherit; font-size: 12.5px; color: var(--text); background: var(--desk); border: 1px solid var(--line); border-radius: var(--radius-row); padding: 3px 6px; }
+.cv-find input:focus { outline: none; border-color: var(--accent); }
+.cv-find-n { min-width: 48px; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.cv-find button { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; padding: 0 4px; }
+.cv-find button:hover { color: var(--accent); }
+
+/* Ink (ink.ts, InkLayer.tsx): over the cards, taking no pointer of its own. */
+.cv-ink { position: absolute; overflow: visible; pointer-events: none; }
+/* With a pen chosen, a crosshair over the canvas; the eraser, a cell. */
+:root[data-ink="pen"] .cv-wrap, :root[data-ink="highlighter"] .cv-wrap { cursor: crosshair; }
+:root[data-ink="eraser"] .cv-wrap { cursor: cell; }
+.ink-bar { gap: 4px; min-width: 0; }
+.ink-row { display: flex; gap: 3px; align-items: center; flex-wrap: wrap; }
+.ink-pick { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid transparent; border-radius: 7px;
+  background: none; color: var(--text); cursor: pointer; padding: 0; }
+.ink-pick:hover { background: var(--surface-2); }
+.ink-pick.on { border-color: var(--accent); background: var(--surface-2); }
+.ink-pick:disabled { opacity: .35; cursor: default; }
+.ink-swatch { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border); cursor: pointer; padding: 0; }
+.ink-swatch.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ink-dot { display: block; border-radius: 50%; }
+.ink-now { position: relative; display: grid; place-items: center; }
+.ink-now-dot { position: absolute; right: -4px; bottom: -3px; width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--surface); }
+:root[data-ink-end="eraser"] .cv-wrap { cursor: cell; }
+
+/* The map (Minimap.tsx): lower left, over the canvas. */
+.cv-minimap { position: absolute; left: 10px; bottom: 10px; z-index: 20; padding: 6px; border: 1px solid var(--border);
+  border-radius: 10px; background: color-mix(in srgb, var(--surface) 88%, transparent); box-shadow: 0 4px 14px rgba(0, 0, 0, .14);
+  touch-action: none; }
+.cv-minimap svg { display: block; cursor: pointer; }
+.cv-minimap-box { fill: var(--text-muted); opacity: .45; }
+.cv-minimap-region { fill: none; stroke: var(--text-muted); opacity: .6; }
+.cv-minimap-view { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); }
+.cv-minimap-close { position: absolute; top: -8px; right: -8px; width: 20px; height: 20px; display: grid; place-items: center;
+  border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--text-muted); cursor: pointer; padding: 0; }
+.cv-minimap-open { position: absolute; left: 10px; bottom: 10px; z-index: 20; width: 30px; height: 30px; display: grid; place-items: center;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-muted); cursor: pointer; padding: 0; }
+
+/* The stroke being drawn (InkLayer): its own sheet over the canvas, wiped as the stroke is kept. */
+.cv-ink-live { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+
+/* What the Select tool has chosen: its buttons (Create region, Delete) together above it. */
+.cv-chosen-actions { position: absolute; z-index: 6; display: flex; gap: 8px; white-space: nowrap; }
+.cv-chosen-actions .cv-make-region { position: static; }
+/* The lasso as it is drawn, and chosen ink's outline (InkLayer). */
+.cv-lasso { position: absolute; overflow: visible; pointer-events: none; z-index: 7; }
+.cv-lasso polyline { fill: none; stroke: var(--accent); stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+.cv-ink-chosen { fill: none; stroke: var(--accent); stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; stroke-width: 1.5px; }
+
+/* A tool's own controls as a strip (the pen's, the shapes): placed by eink.css, down the left. */
+.tool-strip .shape-pick { flex: none; }

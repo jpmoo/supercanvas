@@ -1,0 +1,50 @@
+plugins { id "com.android.application" }
+
+android {
+    namespace "net.supercanvas"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "net.supercanvas"
+        minSdk 26
+        // 29, not newer: on the Nomad (Android 11) an app targeting 29 may keep
+        // ordinary file access (requestLegacyExternalStorage), which is what lets
+        // the folder and picture choosers be the app's own screens, with a way out.
+        // Sideloaded, so no store minimum applies.
+        targetSdk 29
+        versionCode 1
+        versionName "1.0-beta.1"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Signed with the local debug key so the APK can be sideloaded as-is.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    lint {
+        // The old target is deliberate (see defaultConfig).
+        disable "ExpiredTargetSdkVersion", "OldTargetApi"
+        checkReleaseBuilds false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// Rebuild the canvas and copy it into the APK's assets before every build.
+def webRoot = rootProject.file("..")
+tasks.register("buildCanvas", Exec) {
+    workingDir webRoot
+    commandLine "npm", "run", "build"
+}
+tasks.register("copyCanvas", Copy) {
+    dependsOn "buildCanvas"
+    from(new File(webRoot, "dist/web/index.html"))
+    into "src/main/assets"
+}
+preBuild.dependsOn "copyCanvas"

@@ -1,0 +1,36 @@
+{
+  "name": "supercanvas",
+  "private": true,
+  "version": "1.0.0-beta.1",
+  "description": "An infinite canvas for the Supernote Nomad: notes, shapes, links, regions, mind maps and ink, saved to a plain file.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite web",
+    "build": "tsc --noEmit -p web/tsconfig.json && vite build web",
+    "typecheck": "tsc --noEmit -p web/tsconfig.json",
+    "apk": "cd android && ./gradlew assembleRelease && mkdir -p ../dist && cp app/build/outputs/apk/release/app-release.apk ../dist/supercanvas.apk",
+    "deploy": "~/Android/Sdk/platform-tools/adb install -r dist/supercanvas.apk"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.18.0",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "@lezer/common": "^1.5.4",
+    "@lezer/markdown": "^1.8.1",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vite-plugin-singlefile": "^2.0.3"
+  }
+}
